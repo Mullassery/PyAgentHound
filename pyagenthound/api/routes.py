@@ -6,6 +6,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from pyagenthound.graph.builder import build_graph
 from pyagenthound.graph.models import ExecutionGraph
+from pyagenthound.rules.engine import run_rules
+from pyagenthound.rules.models import Finding
 from pyagenthound.sdk.models import SpanStatus, Trace, TraceSummary
 
 router = APIRouter(prefix="/api", tags=["traces"])
@@ -36,6 +38,13 @@ def get_trace(trace_id: str, request: Request) -> Trace:
 def get_trace_graph(trace_id: str, request: Request) -> ExecutionGraph:
     trace = _get_trace_or_404(trace_id, request)
     return build_graph(trace)
+
+
+@router.post("/traces/{trace_id}/analyze")
+def analyze_trace(trace_id: str, request: Request) -> list[Finding]:
+    trace = _get_trace_or_404(trace_id, request)
+    graph = build_graph(trace)
+    return run_rules(trace, graph)
 
 
 def _get_trace_or_404(trace_id: str, request: Request) -> Trace:

@@ -1,6 +1,6 @@
 # PyAgentHound — Honest Status
 
-**Current Version:** unreleased, Phase 2 (pre-0.1.0)
+**Current Version:** unreleased, Phase 3 (pre-0.1.0)
 **Last Updated:** 2026-09-22
 
 This file exists to say plainly what's built-and-verified, what's not built yet, and
@@ -22,8 +22,10 @@ actually verified this" companion, so roadmap planning starts from reality.
   `HTTPExporter` (POSTs to `{endpoint}/api/traces` when configured); export failures
   are caught and logged, never raised into the host app.
 - **API** — FastAPI app with `POST /api/traces`, `GET /api/traces`,
-  `GET /api/traces/{id}`, `GET /api/traces/{id}/graph`; OpenAPI docs at `/docs`.
-- **CLI** — `pyagenthound init`, `pyagenthound serve`, `pyagenthound inspect <id>`.
+  `GET /api/traces/{id}`, `GET /api/traces/{id}/graph`,
+  `POST /api/traces/{id}/analyze`; OpenAPI docs at `/docs`.
+- **CLI** — `pyagenthound init`, `pyagenthound serve`, `pyagenthound inspect <id>`,
+  `pyagenthound analyze <id>`.
 - **Execution graph** — `pyagenthound/graph/`: `Node`/`Edge`/`ExecutionGraph` domain
   model with query methods (`nodes_by_type`, `edges_by_relationship`,
   `nodes_in_window`, `outgoing`/`incoming`/`neighbors`, `ancestors`); `build_graph()`
@@ -32,6 +34,13 @@ actually verified this" companion, so roadmap planning starts from reality.
   produces `DOCUMENT` nodes + `RETRIEVES` edges (basic data lineage). Extractors for
   other span types (tool args, MCP resources, etc.) are not built — see the 🟡
   section below.
+- **Rule engine** — `pyagenthound/rules/`: `Finding`/`Evidence`/`FailureCategory`/
+  `Severity` domain model, `Rule` protocol, `run_rules()`. Five built-in rules, each
+  with passing positive/negative unit tests: `empty_retrieval`,
+  `stale_retrieval_documents` (the deterministic signal behind the stale-context demo
+  scenario), `duplicate_retrieved_documents`, `tool_failure`, `dangling_parent_span`.
+  `Finding.confidence` is each rule's own certainty about its specific anomaly — it
+  is **not** a root-cause confidence (no root-cause engine exists yet).
 
 Re-verify this list's "🟢" claims by actually running `pytest -q` — a memory of "it
 passed once" is not the same as it passing now.
@@ -44,10 +53,14 @@ a stable shape, but zero implementation exists:
 - Graph extractors beyond `RETRIEVAL` (tool arguments, MCP resources/prompts,
   embedding inputs, reranking scores, etc.) — the registry pattern in
   `pyagenthound/graph/builder.py` supports adding these incrementally.
-- Deterministic rule engine / `Finding`s.
-- Root-cause engine, confidence model, historical baseline comparison.
+- The remaining rules from product spec section 6.5 beyond the 5 built-in ones —
+  low-relevance retrieval, excessive/token-explosion context, prompt/model change
+  detection, malformed tool arguments, schema mismatches, tool/agent loops, timeout
+  propagation, failed guardrails, output schema violations, etc.
+- Root-cause engine, confidence model (the decomposed evidence_strength/
+  temporal_correlation/causal_distance/historical_frequency/rule_confidence model),
+  historical baseline comparison, and the `baseline` parameter on `Rule.evaluate`.
 - LLM-powered (optional) analysis layer.
-- Retrieval-specific, tool/MCP-specific, model-specific, prompt-specific analyzers.
 - Replay (including the READ_ONLY/WRITE/DESTRUCTIVE safety classification).
 - Regression test suite / `pyagenthound test` CLI command.
 - Full data/context lineage beyond the single `RETRIEVAL` → `DOCUMENT` extractor.

@@ -2,11 +2,11 @@
 
 **Evidence-based debugging and root-cause analysis for AI agents and LLM applications.**
 
-> **Status: Phase 1-2 MVP.** Trace capture, storage, inspection, and a queryable
-> execution graph work end to end and are tested. The finding engine, root-cause
-> engine, web UI, replay, and evaluation described below in "Where this is going" are
-> **not built yet** — see [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for the exact
-> built-vs-not line.
+> **Status: Phase 1-3 MVP.** Trace capture, storage, inspection, a queryable execution
+> graph, and a deterministic rule engine (5 built-in rules) work end to end and are
+> tested. The root-cause engine, web UI, replay, and evaluation described below in
+> "Where this is going" are **not built yet** — see
+> [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for the exact built-vs-not line.
 
 ## The problem
 
@@ -56,7 +56,12 @@ fact, and every conclusion carries an evidence reference. See
 confidence scores are built from deterministic components rather than an LLM
 guessing a number.
 
-## What works today (Phase 1-2)
+What's real today is the "detected anomalies" layer, not yet the "inferred causes" or
+"failure chain" layer above — `pyagenthound analyze <trace_id>` runs 5 deterministic
+rules (including the stale-document one) and prints findings with their evidence, but
+there's no root-cause ranking or confidence-scored explanation yet.
+
+## What works today (Phase 1-3)
 
 - A Python SDK (`pyagenthound`) with an OpenTelemetry-compatible tracing model:
   traces, spans (with AI-specific `SpanType`s — `LLM`, `RETRIEVAL`, `TOOL`, `MCP`,
@@ -68,7 +73,10 @@ guessing a number.
 - A queryable execution graph (`GET /api/traces/{id}/graph`) built from each trace —
   spans linked by their parent/child structure, plus retrieved documents as their own
   nodes for basic data lineage.
-- A CLI to inspect what was captured.
+- A deterministic rule engine (`POST /api/traces/{id}/analyze`, `pyagenthound
+  analyze`) — 5 built-in rules covering retrieval, tool, and configuration failures,
+  each returning evidence-backed findings, no LLM involved.
+- A CLI to inspect and analyze what was captured.
 
 ## Quickstart
 
@@ -94,6 +102,7 @@ with hound.trace("customer-support-request") as trace:
 
 ```bash
 pyagenthound inspect <trace_id>
+pyagenthound analyze <trace_id>
 ```
 
 Full walkthrough, including the API server, in [`docs/quickstart.md`](docs/quickstart.md).
@@ -106,9 +115,10 @@ The core pipeline this project is building toward:
 Trace → Graph → Evidence → Findings → Causal hypotheses → Replay → Evaluation
 ```
 
-Deterministic rule engine first (LLM-powered analysis is optional and additive, never
-required), execution graph with typed relationships and data lineage, a root-cause
-engine with an explicit, decomposed confidence model, historical baseline comparison,
+Deterministic rule engine (built — 5 rules; LLM-powered analysis is optional and
+additive, never required), execution graph with typed relationships and data lineage
+(built), a root-cause engine with an explicit, decomposed confidence model,
+historical baseline comparison,
 safe replay with a read/write/destructive safety classification, and a regression
 test suite you can run in CI. See [`docs/architecture.md`](docs/architecture.md) for
 the full design and [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for what's actually

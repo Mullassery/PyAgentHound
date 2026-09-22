@@ -2,6 +2,7 @@
 
 Run with: python examples/minimal_trace.py
 Then:     pyagenthound inspect <trace_id printed below>
+Or:       pyagenthound analyze <trace_id printed below>
 """
 
 from pyagenthound import AgentHound, SpanType
@@ -21,3 +22,5 @@ with hound.trace("minimal-example") as trace:
 print(f"trace_id: {trace.trace.trace_id}")
 print("Inspect it with:")
 print(f"  pyagenthound inspect {trace.trace.trace_id}")
+print("Or run the deterministic rule engine over it with:")
+print(f"  pyagenthound analyze {trace.trace.trace_id}")

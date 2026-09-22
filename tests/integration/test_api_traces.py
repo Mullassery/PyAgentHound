@@ -86,3 +86,29 @@ def test_get_trace_graph(tmp_path):
 def test_get_trace_graph_404(tmp_path):
     resp = _client(tmp_path).get("/api/traces/does-not-exist/graph")
     assert resp.status_code == 404
+
+
+def test_analyze_trace_returns_findings(tmp_path):
+    client = _client(tmp_path)
+
+    trace = Trace(name="req")
+    trace.spans.append(
+        Span(
+            trace_id=trace.trace_id,
+            name="retrieval",
+            span_type=SpanType.RETRIEVAL,
+            attributes={"documents": []},
+        )
+    )
+    client.post("/api/traces", json=trace.model_dump(mode="json"))
+
+    resp = client.post(f"/api/traces/{trace.trace_id}/analyze")
+    assert resp.status_code == 200
+    findings = resp.json()
+    assert len(findings) == 1
+    assert findings[0]["rule_id"] == "empty_retrieval"
+
+
+def test_analyze_trace_404(tmp_path):
+    resp = _client(tmp_path).post("/api/traces/does-not-exist/analyze")
+    assert resp.status_code == 404

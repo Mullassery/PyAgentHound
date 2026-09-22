@@ -30,15 +30,17 @@ Four kinds of statements the system can make, never conflated:
   evidence-referenced, never presented as fact.
 - **Recommendations** — remediation hints attached to a finding/category.
 
-## 2. MVP boundary (Phase 1-2)
+## 2. MVP boundary (Phase 1-3)
 
 Phase 1 delivered the substrate everything else builds on: capture a trace, store it,
 retrieve it, look at it. Phase 2 added the execution graph — spans plus their
 attribute-derived entities (documents, for now) assembled into a queryable directed
-graph. Still no rule engine, no root-cause engine, no web UI, no replay, no eval.
-Concretely, Phase 1-2 = SDK + tracing model + SQLite storage + execution graph +
-a 4-endpoint API + a 3-command CLI. See `ROADMAP_HONEST.md` for the authoritative
-built-vs-not list.
+graph. Phase 3 added a deterministic rule engine that evaluates findings over that
+graph — the first component that actually *detects* something, rather than just
+recording it. Still no root-cause engine (findings are not yet ranked into causes),
+no web UI, no replay, no eval. Concretely, Phase 1-3 = SDK + tracing model + SQLite
+storage + execution graph + rule engine (5 built-in rules) + a 5-endpoint API + a
+4-command CLI. See `ROADMAP_HONEST.md` for the authoritative built-vs-not list.
 
 ## 3. Domain models (Phase 1)
 
@@ -99,33 +101,65 @@ built yet, not stubbed.
 
 Exposed via `GET /api/traces/{id}/graph` (section 9).
 
-## 5. Rule engine interface (future — documented now, not implemented)
+## 5. Rule engine (Phase 3 — built)
 
 Deterministic, not LLM-based. A rule is a pure function over a trace + its execution
-graph that returns zero or more `Finding`s:
+graph that returns zero or more `Finding`s (`pyagenthound/rules/models.py`):
 
 ```python
 class Rule(Protocol):
     id: str
     category: FailureCategory  # RETRIEVAL_FAILURE, TOOL_FAILURE, MODEL_FAILURE, ...
 
-    def evaluate(self, trace: Trace, graph: ExecutionGraph,
-                 baseline: Baseline | None) -> list[Finding]: ...
+    def evaluate(self, trace: Trace, graph: ExecutionGraph) -> list[Finding]: ...
 ```
 
-`Finding` fields (per product spec 6.5): `finding_id, category, severity, title,
-description, evidence, affected_nodes, confidence, recommendation`. Rules run
-independently and are individually unit-testable against fixture traces — this is
-why the tracing model's attributes are unstructured dicts rather than per-span-type
-subclasses: rules pattern-match on the attributes they care about and ignore the
-rest, so adding a new AI-specific field never requires touching the core model.
+No `baseline` parameter yet — historical-baseline-aware rules are Phase 4 work (the
+signature will grow then, deliberately not accepting an always-`None` placeholder
+today). `Finding` fields (per product spec 6.5): `finding_id, rule_id, category,
+severity, title, description, evidence, affected_nodes, confidence, recommendation`.
+Rules run independently and are individually unit-testable against fixture traces —
+this is why the tracing model's attributes are unstructured dicts rather than
+per-span-type subclasses: rules pattern-match on the attributes they care about and
+ignore the rest, so adding a new AI-specific field never requires touching the core
+model.
 
-The root-cause engine (Phase 4) consumes the list of `Finding`s plus graph structure
-plus optional historical baseline and produces ranked hypotheses — explicitly labeled
-"likely cause" / "contributing factor," never "truth," each with an evidence
-reference and a confidence score whose components (evidence_strength,
+`pyagenthound/rules/engine.py` — `DEFAULT_RULES` + `run_rules(trace, graph, rules=None)`
+evaluates every registered rule and concatenates their findings. **Five built-in
+rules ship in Phase 3** (`pyagenthound/rules/builtin.py`), chosen to prove the pattern
+across more than one `FailureCategory` rather than exhaustively covering the product
+spec's full rule list (section 6.5):
+
+- `empty_retrieval` (RETRIEVAL_FAILURE) — a `RETRIEVAL` span whose `documents`
+  attribute is an empty list.
+- `stale_retrieval_documents` (RETRIEVAL_FAILURE) — within one retrieval, documents
+  whose `date` attribute predates the most recently dated document retrieved for the
+  same query. This is the deterministic signal behind the stale-context demo scenario
+  (product spec section 27); it compares dates *within* a single retrieval, not
+  against an external "active version" baseline (no such baseline exists until
+  Phase 4).
+- `duplicate_retrieved_documents` (RETRIEVAL_FAILURE) — repeated document ids in one
+  retrieval's results.
+- `tool_failure` (TOOL_FAILURE) — a `TOOL`/`MCP` span that ended with `status=ERROR`.
+- `dangling_parent_span` (CONFIGURATION_FAILURE) — a span whose `parent_span_id`
+  isn't present in the trace (the same condition `build_graph` falls back to
+  attaching at the trace root for, surfaced here as an anomaly worth a human look).
+
+The remaining rules from product spec section 6.5 (empty/low-relevance retrieval
+nuances, prompt/model change detection, token explosion, tool/agent loops, schema
+violations, etc.) are documented future work in `ROADMAP_HONEST.md`, addable the same
+way: a class with `id`/`category`/`evaluate`, appended to `DEFAULT_RULES`.
+
+Exposed via `POST /api/traces/{id}/analyze` (section 9) and `pyagenthound analyze`.
+
+The root-cause engine (Phase 4, not built) will consume the list of `Finding`s plus
+graph structure plus optional historical baseline and produce ranked hypotheses —
+explicitly labeled "likely cause" / "contributing factor," never "truth," each with
+an evidence reference and a confidence score whose components (evidence_strength,
 temporal_correlation, causal_distance, historical_frequency, rule_confidence) are
-exposed, not a single opaque number from an LLM.
+exposed, not a single opaque number from an LLM. A `Finding.confidence` today is only
+the rule's own certainty about its specific anomaly — it is not yet a root-cause
+confidence.
 
 ## 6. Storage interfaces (Phase 1)
 
@@ -188,20 +222,21 @@ processor/resource abstractions PyAgentHound doesn't need yet, for a feature
 (ingesting traces from other tools) nothing in Phase 1 uses. Phase 6 adds an adapter
 that maps OTel spans → PyAgentHound `Span`s; it does not replace the native SDK.
 
-## 9. API contract (Phase 1-2)
+## 9. API contract (Phase 1-3)
 
 FastAPI app (`pyagenthound/api/app.py`), OpenAPI docs auto-served at `/docs`.
 
-| Method | Path                      | Purpose                                    |
-|--------|---------------------------|---------------------------------------------|
-| POST   | `/api/traces`             | Ingest one completed trace (with spans)    |
-| GET    | `/api/traces`             | List traces (`limit`, `offset`, `status`)  |
-| GET    | `/api/traces/{id}`        | Full trace detail with spans               |
-| GET    | `/api/traces/{id}/graph`  | Execution graph for the trace (section 4)  |
+| Method | Path                       | Purpose                                     |
+|--------|----------------------------|------------------------------------------------|
+| POST   | `/api/traces`              | Ingest one completed trace (with spans)     |
+| GET    | `/api/traces`              | List traces (`limit`, `offset`, `status`)   |
+| GET    | `/api/traces/{id}`         | Full trace detail with spans                |
+| GET    | `/api/traces/{id}/graph`   | Execution graph for the trace (section 4)   |
+| POST   | `/api/traces/{id}/analyze` | Run the deterministic rule engine, return `list[Finding]` (section 5) |
 
-Everything findings/analyze/replay/evaluation-related from the product spec's full
-API surface (section 19) is intentionally absent — those engines don't exist yet, and
-an endpoint returning a stub payload would be worse than no endpoint.
+Replay/evaluation-related endpoints from the product spec's full API surface
+(section 19) are intentionally absent — those engines don't exist yet, and an
+endpoint returning a stub payload would be worse than no endpoint.
 
 ## 10. Security / privacy boundaries (Phase 1 reality)
 
@@ -219,9 +254,10 @@ documented future capability, not built.
 - **Unit** — `tests/unit/`: model serialization round-trips, SDK context-manager/
   decorator nesting and error capture, SQLite store save/get/list round-trips, graph
   construction (parent tree, dangling-parent fallback, the `RETRIEVAL` extractor,
-  query methods including `ancestors`).
+  query methods including `ancestors`), each of the 5 built-in rules (positive and
+  negative case) plus `run_rules` aggregation.
 - **Integration** — `tests/integration/`: FastAPI `TestClient` against a temp SQLite
-  db (full ingest → list → get → graph flow), CLI commands (`init`, `inspect`) against
-  a fixture db.
+  db (full ingest → list → get → graph → analyze flow), CLI commands (`init`,
+  `inspect`, `analyze`) against a fixture db.
 - No test depends on a real external LLM API — there are none in Phase 1's scope, and
   this constraint carries forward as later phases add LLM-powered analysis.
