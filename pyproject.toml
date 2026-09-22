@@ -1,0 +1,85 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyagenthound"
+version = "0.1.0"
+description = "Evidence-based debugging and root-cause analysis for AI agents and LLM applications"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [
+    { name = "Georgi Mammen Mullassery", email = "mullassery@gmail.com" }
+]
+maintainers = [
+    { name = "Georgi Mammen Mullassery", email = "mullassery@gmail.com" }
+]
+keywords = [
+    "ai-debugging",
+    "llm",
+    "agents",
+    "observability",
+    "root-cause-analysis",
+    "tracing",
+    "rag",
+    "mcp",
+    "opentelemetry",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: System :: Monitoring",
+]
+
+dependencies = [
+    "pydantic>=2.0,<3",
+    "click>=8.1,<9",
+    "rich>=13.0,<15",
+    "requests>=2.28,<3",
+    "fastapi>=0.110,<1",
+    "uvicorn>=0.27,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "httpx>=0.27",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[project.urls]
+Homepage = "https://github.com/Mullassery/PyAgentHound"
+Repository = "https://github.com/Mullassery/PyAgentHound"
+Issues = "https://github.com/Mullassery/PyAgentHound/issues"
+
+[project.scripts]
+pyagenthound = "pyagenthound.cli.main:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pyagenthound"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+disallow_untyped_defs = false
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
