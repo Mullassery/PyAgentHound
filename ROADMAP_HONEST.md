@@ -1,6 +1,6 @@
 # PyAgentHound — Honest Status
 
-**Current Version:** unreleased, Phase 1 (pre-0.1.0)
+**Current Version:** unreleased, Phase 2 (pre-0.1.0)
 **Last Updated:** 2026-09-22
 
 This file exists to say plainly what's built-and-verified, what's not built yet, and
@@ -22,8 +22,16 @@ actually verified this" companion, so roadmap planning starts from reality.
   `HTTPExporter` (POSTs to `{endpoint}/api/traces` when configured); export failures
   are caught and logged, never raised into the host app.
 - **API** — FastAPI app with `POST /api/traces`, `GET /api/traces`,
-  `GET /api/traces/{id}`; OpenAPI docs at `/docs`.
+  `GET /api/traces/{id}`, `GET /api/traces/{id}/graph`; OpenAPI docs at `/docs`.
 - **CLI** — `pyagenthound init`, `pyagenthound serve`, `pyagenthound inspect <id>`.
+- **Execution graph** — `pyagenthound/graph/`: `Node`/`Edge`/`ExecutionGraph` domain
+  model with query methods (`nodes_by_type`, `edges_by_relationship`,
+  `nodes_in_window`, `outgoing`/`incoming`/`neighbors`, `ancestors`); `build_graph()`
+  walks a trace into a `TRACE` root + per-span nodes linked by `PARENT` edges. One
+  attribute extractor is implemented: `RETRIEVAL` spans' `documents` attribute
+  produces `DOCUMENT` nodes + `RETRIEVES` edges (basic data lineage). Extractors for
+  other span types (tool args, MCP resources, etc.) are not built — see the 🟡
+  section below.
 
 Re-verify this list's "🟢" claims by actually running `pytest -q` — a memory of "it
 passed once" is not the same as it passing now.
@@ -33,15 +41,16 @@ passed once" is not the same as it passing now.
 These have a designed contract in `docs/architecture.md` so later work builds against
 a stable shape, but zero implementation exists:
 
-- Execution graph construction (nodes/edges/relationships beyond the parent/child
-  tree already implicit in `parent_span_id`).
+- Graph extractors beyond `RETRIEVAL` (tool arguments, MCP resources/prompts,
+  embedding inputs, reranking scores, etc.) — the registry pattern in
+  `pyagenthound/graph/builder.py` supports adding these incrementally.
 - Deterministic rule engine / `Finding`s.
 - Root-cause engine, confidence model, historical baseline comparison.
 - LLM-powered (optional) analysis layer.
 - Retrieval-specific, tool/MCP-specific, model-specific, prompt-specific analyzers.
 - Replay (including the READ_ONLY/WRITE/DESTRUCTIVE safety classification).
 - Regression test suite / `pyagenthound test` CLI command.
-- Data/context lineage.
+- Full data/context lineage beyond the single `RETRIEVAL` → `DOCUMENT` extractor.
 
 ## 🔴 Explicitly out of scope for now
 

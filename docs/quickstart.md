@@ -30,9 +30,10 @@ with hound.trace("my-request") as trace:
 ```bash
 curl http://localhost:8787/api/traces
 curl http://localhost:8787/api/traces/<trace_id>
+curl http://localhost:8787/api/traces/<trace_id>/graph
 ```
 
 ## What's not here yet
 
-No web UI, no execution graph, no findings, no root-cause analysis, no replay, no
-evaluation — see `../ROADMAP_HONEST.md` for exactly what's built vs. planned.
+No web UI, no findings, no root-cause analysis, no replay, no evaluation — see
+`../ROADMAP_HONEST.md` for exactly what's built vs. planned.

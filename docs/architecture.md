@@ -3,10 +3,10 @@
 This document is the architecture deliverable for the project: it identifies MVP
 boundaries, core domain models, API contracts, the execution-graph model, the rule
 engine interface, storage interfaces, the SDK API, security/privacy boundaries, and
-testing strategy. Sections marked **(Phase 1)** are implemented today. Sections marked
-**(future)** describe the intended contract so later phases build against a stable
-shape, not because the code exists yet — see `ROADMAP_HONEST.md` for exactly what's
-real right now.
+testing strategy. Sections marked **(Phase 1)** / **(Phase 2 — built)** are
+implemented today. Sections marked **(future)** describe the intended contract so
+later phases build against a stable shape, not because the code exists yet — see
+`ROADMAP_HONEST.md` for exactly what's real right now.
 
 ## 1. Product framing
 
@@ -30,12 +30,14 @@ Four kinds of statements the system can make, never conflated:
   evidence-referenced, never presented as fact.
 - **Recommendations** — remediation hints attached to a finding/category.
 
-## 2. MVP boundary (Phase 1)
+## 2. MVP boundary (Phase 1-2)
 
-Phase 1 delivers the substrate everything else builds on: capture a trace, store it,
-retrieve it, look at it. No graph construction, no rules, no root-cause engine, no UI,
-no replay, no eval yet. Concretely, Phase 1 = SDK + tracing model + SQLite storage +
-a 3-endpoint API + a 3-command CLI. See `ROADMAP_HONEST.md` for the authoritative
+Phase 1 delivered the substrate everything else builds on: capture a trace, store it,
+retrieve it, look at it. Phase 2 added the execution graph — spans plus their
+attribute-derived entities (documents, for now) assembled into a queryable directed
+graph. Still no rule engine, no root-cause engine, no web UI, no replay, no eval.
+Concretely, Phase 1-2 = SDK + tracing model + SQLite storage + execution graph +
+a 4-endpoint API + a 3-command CLI. See `ROADMAP_HONEST.md` for the authoritative
 built-vs-not list.
 
 ## 3. Domain models (Phase 1)
@@ -61,28 +63,41 @@ These map 1:1 onto OpenTelemetry's trace/span/event concepts (trace_id, span_id,
 parent_span_id, timestamps, attributes, events, status, exceptions) by design — see
 section 8 for why PyAgentHound doesn't just *use* the OTel SDK in Phase 1.
 
-## 4. Execution graph model (future — documented now per spec, not implemented)
+## 4. Execution graph model (Phase 2 — built)
 
 A trace's spans already form a tree via `parent_span_id`. The **execution graph**
-(Phase 2) is a superset of that tree: a directed graph where nodes are spans (or
-external entities like documents/tools discovered via span attributes) and edges
-carry a typed **relationship**, not just parent/child:
+is a superset of that tree: a directed graph where nodes are spans (or external
+entities like documents discovered via span attributes) and edges carry a typed
+**relationship**, not just parent/child:
 
 ```
-Node:  id, type, timestamp, duration, attributes, status
-Edge:  source, destination, relationship
+Node:  id, type, name, timestamp, duration_ms, attributes, status
+Edge:  source, target, relationship
 
 relationship ∈ {PARENT, CALLS, DEPENDS_ON, PRODUCES, CONSUMES,
                 RETRIEVES, INVOKES, TRANSFORMS}
 ```
 
-The graph is built by walking a trace's spans and, per `span_type`, extracting
-additional nodes/edges from attributes (e.g. a `RETRIEVAL` span's `documents`
-attribute produces `RETRIEVES` edges to per-document nodes — this is also the basis
-for data/context lineage in section 13 of the product spec). The graph must be
-queryable (by node type, by relationship, by time window) — the query interface is
-designed once real usage from the finding/root-cause engines (Phase 3-4) exists,
-rather than guessed at now.
+`pyagenthound/graph/models.py` — `NodeType` (span types + `TRACE` for the synthetic
+per-trace root node + `DOCUMENT` for extracted lineage entities), `Relationship`,
+`Node`, `Edge`, `ExecutionGraph`. `ExecutionGraph` is queryable: `nodes_by_type`,
+`edges_by_relationship`, `nodes_in_window`, `outgoing`/`incoming`/`neighbors`, and
+`ancestors` (transitive backward walk — the basis for data/context lineage,
+product spec section 13).
+
+`pyagenthound/graph/builder.py` — `build_graph(trace)` creates the `TRACE` root node
+and one node per span, linked by `PARENT` edges (a span with a `parent_span_id` not
+present in the trace attaches to the trace root rather than being dropped). On top of
+that structural tree, a small per-`SpanType` extractor registry (`@_register(...)`)
+pulls additional nodes/edges out of span attributes. **Phase 2 ships exactly one
+extractor**: `RETRIEVAL` spans with a `documents` attribute produce `DOCUMENT` nodes
++ `RETRIEVES` edges — this is the literal mechanism behind the stale-document demo
+scenario (product spec section 27) once the finding engine (Phase 3) exists to reason
+over it. Extractors for other span types (tool arguments, MCP resources, embedding
+inputs, etc.) are a documented future extension via the same registry pattern — not
+built yet, not stubbed.
+
+Exposed via `GET /api/traces/{id}/graph` (section 9).
 
 ## 5. Rule engine interface (future — documented now, not implemented)
 
@@ -173,19 +188,20 @@ processor/resource abstractions PyAgentHound doesn't need yet, for a feature
 (ingesting traces from other tools) nothing in Phase 1 uses. Phase 6 adds an adapter
 that maps OTel spans → PyAgentHound `Span`s; it does not replace the native SDK.
 
-## 9. API contract (Phase 1)
+## 9. API contract (Phase 1-2)
 
 FastAPI app (`pyagenthound/api/app.py`), OpenAPI docs auto-served at `/docs`.
 
-| Method | Path                | Purpose                                  |
-|--------|---------------------|-------------------------------------------|
-| POST   | `/api/traces`       | Ingest one completed trace (with spans)  |
-| GET    | `/api/traces`       | List traces (`limit`, `offset`, `status`) |
-| GET    | `/api/traces/{id}`  | Full trace detail with spans              |
+| Method | Path                      | Purpose                                    |
+|--------|---------------------------|---------------------------------------------|
+| POST   | `/api/traces`             | Ingest one completed trace (with spans)    |
+| GET    | `/api/traces`             | List traces (`limit`, `offset`, `status`)  |
+| GET    | `/api/traces/{id}`        | Full trace detail with spans               |
+| GET    | `/api/traces/{id}/graph`  | Execution graph for the trace (section 4)  |
 
-Everything graph/findings/analyze/replay/evaluation-related from the product spec's
-full API surface (section 19) is intentionally absent — those engines don't exist
-yet, and an endpoint returning a stub payload would be worse than no endpoint.
+Everything findings/analyze/replay/evaluation-related from the product spec's full
+API surface (section 19) is intentionally absent — those engines don't exist yet, and
+an endpoint returning a stub payload would be worse than no endpoint.
 
 ## 10. Security / privacy boundaries (Phase 1 reality)
 
@@ -201,9 +217,11 @@ documented future capability, not built.
 ## 11. Testing strategy
 
 - **Unit** — `tests/unit/`: model serialization round-trips, SDK context-manager/
-  decorator nesting and error capture, SQLite store save/get/list round-trips.
+  decorator nesting and error capture, SQLite store save/get/list round-trips, graph
+  construction (parent tree, dangling-parent fallback, the `RETRIEVAL` extractor,
+  query methods including `ancestors`).
 - **Integration** — `tests/integration/`: FastAPI `TestClient` against a temp SQLite
-  db (full ingest → list → get flow), CLI commands (`init`, `inspect`) against a
-  fixture db.
+  db (full ingest → list → get → graph flow), CLI commands (`init`, `inspect`) against
+  a fixture db.
 - No test depends on a real external LLM API — there are none in Phase 1's scope, and
   this constraint carries forward as later phases add LLM-powered analysis.

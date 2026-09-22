@@ -2,10 +2,11 @@
 
 **Evidence-based debugging and root-cause analysis for AI agents and LLM applications.**
 
-> **Status: Phase 1 MVP.** Trace capture, storage, and inspection work end to end and
-> are tested. The execution graph, finding engine, root-cause engine, web UI, replay,
-> and evaluation described below in "Where this is going" are **not built yet** — see
-> [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for the exact built-vs-not line.
+> **Status: Phase 1-2 MVP.** Trace capture, storage, inspection, and a queryable
+> execution graph work end to end and are tested. The finding engine, root-cause
+> engine, web UI, replay, and evaluation described below in "Where this is going" are
+> **not built yet** — see [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for the exact
+> built-vs-not line.
 
 ## The problem
 
@@ -55,7 +56,7 @@ fact, and every conclusion carries an evidence reference. See
 confidence scores are built from deterministic components rather than an LLM
 guessing a number.
 
-## What works today (Phase 1)
+## What works today (Phase 1-2)
 
 - A Python SDK (`pyagenthound`) with an OpenTelemetry-compatible tracing model:
   traces, spans (with AI-specific `SpanType`s — `LLM`, `RETRIEVAL`, `TOOL`, `MCP`,
@@ -64,6 +65,9 @@ guessing a number.
   database.
 - An optional local API server (`pyagenthound serve`) + REST ingestion, if you want
   to centralize traces from multiple processes.
+- A queryable execution graph (`GET /api/traces/{id}/graph`) built from each trace —
+  spans linked by their parent/child structure, plus retrieved documents as their own
+  nodes for basic data lineage.
 - A CLI to inspect what was captured.
 
 ## Quickstart

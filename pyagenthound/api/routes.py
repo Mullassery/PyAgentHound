@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from pyagenthound.graph.builder import build_graph
+from pyagenthound.graph.models import ExecutionGraph
 from pyagenthound.sdk.models import SpanStatus, Trace, TraceSummary
 
 router = APIRouter(prefix="/api", tags=["traces"])
@@ -27,6 +29,16 @@ def list_traces(
 
 @router.get("/traces/{trace_id}")
 def get_trace(trace_id: str, request: Request) -> Trace:
+    return _get_trace_or_404(trace_id, request)
+
+
+@router.get("/traces/{trace_id}/graph")
+def get_trace_graph(trace_id: str, request: Request) -> ExecutionGraph:
+    trace = _get_trace_or_404(trace_id, request)
+    return build_graph(trace)
+
+
+def _get_trace_or_404(trace_id: str, request: Request) -> Trace:
     trace = request.app.state.store.get_trace(trace_id)
     if trace is None:
         raise HTTPException(status_code=404, detail=f"trace {trace_id!r} not found")

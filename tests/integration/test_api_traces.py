@@ -56,3 +56,33 @@ def test_list_traces_status_filter(tmp_path):
     body = resp.json()
     assert len(body) == 1
     assert body[0]["name"] == "err"
+
+
+def test_get_trace_graph(tmp_path):
+    client = _client(tmp_path)
+
+    trace = Trace(name="req")
+    trace.spans.append(
+        Span(
+            trace_id=trace.trace_id,
+            name="retrieval",
+            span_type=SpanType.RETRIEVAL,
+            attributes={"documents": ["policy-2024"]},
+        )
+    )
+    client.post("/api/traces", json=trace.model_dump(mode="json"))
+
+    resp = client.get(f"/api/traces/{trace.trace_id}/graph")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["trace_id"] == trace.trace_id
+    node_types = {n["type"] for n in body["nodes"]}
+    assert "DOCUMENT" in node_types
+    relationships = {e["relationship"] for e in body["edges"]}
+    assert "RETRIEVES" in relationships
+    assert "PARENT" in relationships
+
+
+def test_get_trace_graph_404(tmp_path):
+    resp = _client(tmp_path).get("/api/traces/does-not-exist/graph")
+    assert resp.status_code == 404
