@@ -1,6 +1,6 @@
 # PyAgentHound — Honest Status
 
-**Current Version:** unreleased, Phase 3 (pre-0.1.0)
+**Current Version:** unreleased, Phase 4 (pre-0.1.0)
 **Last Updated:** 2026-09-22
 
 This file exists to say plainly what's built-and-verified, what's not built yet, and
@@ -23,9 +23,11 @@ actually verified this" companion, so roadmap planning starts from reality.
   are caught and logged, never raised into the host app.
 - **API** — FastAPI app with `POST /api/traces`, `GET /api/traces`,
   `GET /api/traces/{id}`, `GET /api/traces/{id}/graph`,
-  `POST /api/traces/{id}/analyze`; OpenAPI docs at `/docs`.
+  `POST /api/traces/{id}/analyze`, `GET /api/traces/{id}/root-cause`; OpenAPI docs
+  at `/docs`.
 - **CLI** — `pyagenthound init`, `pyagenthound serve`, `pyagenthound inspect <id>`,
-  `pyagenthound analyze <id>`.
+  `pyagenthound analyze <id>` (prints both findings and ranked root-cause
+  hypotheses).
 - **Execution graph** — `pyagenthound/graph/`: `Node`/`Edge`/`ExecutionGraph` domain
   model with query methods (`nodes_by_type`, `edges_by_relationship`,
   `nodes_in_window`, `outgoing`/`incoming`/`neighbors`, `ancestors`); `build_graph()`
@@ -40,7 +42,18 @@ actually verified this" companion, so roadmap planning starts from reality.
   `stale_retrieval_documents` (the deterministic signal behind the stale-context demo
   scenario), `duplicate_retrieved_documents`, `tool_failure`, `dangling_parent_span`.
   `Finding.confidence` is each rule's own certainty about its specific anomaly — it
-  is **not** a root-cause confidence (no root-cause engine exists yet).
+  is a component of, but not equal to, root-cause confidence (see next item).
+- **Root-cause engine** — `pyagenthound/rootcause/`: `ConfidenceComponents`/
+  `RootCauseHypothesis` domain model, `rank_root_causes()`. Turns each `Finding`
+  into a hypothesis, ranks by confidence, labels the top one `likely_cause` and the
+  rest `contributing_factor`. Confidence combines two real, computed components —
+  `evidence_strength` (the finding's own confidence) and `causal_proximity`
+  (graph-hop distance from the finding's span to the trace's final-output span). The
+  other two documented components, `temporal_correlation` and
+  `historical_frequency`, are always `None` — not faked — because they need
+  historical baseline storage, which doesn't exist (see 🟡 below). No fabricated
+  "observed consequence" (e.g. claiming an answer was "incorrect") is generated;
+  that would require ground truth this system doesn't have.
 
 Re-verify this list's "🟢" claims by actually running `pytest -q` — a memory of "it
 passed once" is not the same as it passing now.
@@ -57,9 +70,9 @@ a stable shape, but zero implementation exists:
   low-relevance retrieval, excessive/token-explosion context, prompt/model change
   detection, malformed tool arguments, schema mismatches, tool/agent loops, timeout
   propagation, failed guardrails, output schema violations, etc.
-- Root-cause engine, confidence model (the decomposed evidence_strength/
-  temporal_correlation/causal_distance/historical_frequency/rule_confidence model),
-  historical baseline comparison, and the `baseline` parameter on `Rule.evaluate`.
+- Historical baseline storage/comparison (product spec section 6.8) and the
+  `temporal_correlation`/`historical_frequency` confidence components and the
+  `baseline` parameter on `Rule.evaluate` that depend on it.
 - LLM-powered (optional) analysis layer.
 - Replay (including the READ_ONLY/WRITE/DESTRUCTIVE safety classification).
 - Regression test suite / `pyagenthound test` CLI command.

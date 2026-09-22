@@ -55,6 +55,8 @@ def test_analyze_prints_findings(tmp_path):
 
     assert result.exit_code == 0
     assert "Retrieval returned no documents" in result.output
+    assert "Root Cause Analysis" in result.output
+    assert "Likely cause" in result.output
 
 
 def test_analyze_no_findings(tmp_path):

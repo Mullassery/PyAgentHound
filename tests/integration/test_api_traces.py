@@ -112,3 +112,30 @@ def test_analyze_trace_returns_findings(tmp_path):
 def test_analyze_trace_404(tmp_path):
     resp = _client(tmp_path).post("/api/traces/does-not-exist/analyze")
     assert resp.status_code == 404
+
+
+def test_root_cause_returns_ranked_hypotheses(tmp_path):
+    client = _client(tmp_path)
+
+    trace = Trace(name="req")
+    trace.spans.append(
+        Span(
+            trace_id=trace.trace_id,
+            name="retrieval",
+            span_type=SpanType.RETRIEVAL,
+            attributes={"documents": []},
+        )
+    )
+    client.post("/api/traces", json=trace.model_dump(mode="json"))
+
+    resp = client.get(f"/api/traces/{trace.trace_id}/root-cause")
+    assert resp.status_code == 200
+    hypotheses = resp.json()
+    assert len(hypotheses) == 1
+    assert hypotheses[0]["label"] == "likely_cause"
+    assert hypotheses[0]["confidence_components"]["temporal_correlation"] is None
+
+
+def test_root_cause_404(tmp_path):
+    resp = _client(tmp_path).get("/api/traces/does-not-exist/root-cause")
+    assert resp.status_code == 404

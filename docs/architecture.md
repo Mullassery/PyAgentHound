@@ -2,11 +2,11 @@
 
 This document is the architecture deliverable for the project: it identifies MVP
 boundaries, core domain models, API contracts, the execution-graph model, the rule
-engine interface, storage interfaces, the SDK API, security/privacy boundaries, and
-testing strategy. Sections marked **(Phase 1)** / **(Phase 2 — built)** are
-implemented today. Sections marked **(future)** describe the intended contract so
-later phases build against a stable shape, not because the code exists yet — see
-`ROADMAP_HONEST.md` for exactly what's real right now.
+engine, the root-cause engine, storage interfaces, the SDK API, security/privacy
+boundaries, and testing strategy. Sections marked **(built)** or with a specific
+Phase are implemented today. Sections marked **(future)** describe the intended
+contract so later phases build against a stable shape, not because the code exists
+yet — see `ROADMAP_HONEST.md` for exactly what's real right now.
 
 ## 1. Product framing
 
@@ -30,17 +30,21 @@ Four kinds of statements the system can make, never conflated:
   evidence-referenced, never presented as fact.
 - **Recommendations** — remediation hints attached to a finding/category.
 
-## 2. MVP boundary (Phase 1-3)
+## 2. MVP boundary (Phase 1-4)
 
 Phase 1 delivered the substrate everything else builds on: capture a trace, store it,
 retrieve it, look at it. Phase 2 added the execution graph — spans plus their
 attribute-derived entities (documents, for now) assembled into a queryable directed
 graph. Phase 3 added a deterministic rule engine that evaluates findings over that
 graph — the first component that actually *detects* something, rather than just
-recording it. Still no root-cause engine (findings are not yet ranked into causes),
-no web UI, no replay, no eval. Concretely, Phase 1-3 = SDK + tracing model + SQLite
-storage + execution graph + rule engine (5 built-in rules) + a 5-endpoint API + a
-4-command CLI. See `ROADMAP_HONEST.md` for the authoritative built-vs-not list.
+recording it. Phase 4 added a root-cause engine that ranks findings into a "likely
+cause" plus "contributing factors" — but only the confidence-model components that
+don't require historical data (see section 6); temporal correlation and historical
+frequency stay unimplemented until baseline storage exists. Still no web UI, no
+replay, no eval, no historical baselines. Concretely, Phase 1-4 = SDK + tracing model
++ SQLite storage + execution graph + rule engine (5 built-in rules) + root-cause
+ranking + a 6-endpoint API + a 4-command CLI. See `ROADMAP_HONEST.md` for the
+authoritative built-vs-not list.
 
 ## 3. Domain models (Phase 1)
 
@@ -63,7 +67,7 @@ API request/response schemas so there's exactly one definition of "what a trace 
 
 These map 1:1 onto OpenTelemetry's trace/span/event concepts (trace_id, span_id,
 parent_span_id, timestamps, attributes, events, status, exceptions) by design — see
-section 8 for why PyAgentHound doesn't just *use* the OTel SDK in Phase 1.
+section 9 for why PyAgentHound doesn't just *use* the OTel SDK in Phase 1.
 
 ## 4. Execution graph model (Phase 2 — built)
 
@@ -99,7 +103,7 @@ over it. Extractors for other span types (tool arguments, MCP resources, embeddi
 inputs, etc.) are a documented future extension via the same registry pattern — not
 built yet, not stubbed.
 
-Exposed via `GET /api/traces/{id}/graph` (section 9).
+Exposed via `GET /api/traces/{id}/graph` (section 10).
 
 ## 5. Rule engine (Phase 3 — built)
 
@@ -150,18 +154,65 @@ nuances, prompt/model change detection, token explosion, tool/agent loops, schem
 violations, etc.) are documented future work in `ROADMAP_HONEST.md`, addable the same
 way: a class with `id`/`category`/`evaluate`, appended to `DEFAULT_RULES`.
 
-Exposed via `POST /api/traces/{id}/analyze` (section 9) and `pyagenthound analyze`.
+Exposed via `POST /api/traces/{id}/analyze` (section 10) and `pyagenthound analyze`.
+A `Finding.confidence` is only the rule's own certainty about its specific anomaly —
+see section 6 for how that becomes a root-cause confidence.
 
-The root-cause engine (Phase 4, not built) will consume the list of `Finding`s plus
-graph structure plus optional historical baseline and produce ranked hypotheses —
-explicitly labeled "likely cause" / "contributing factor," never "truth," each with
-an evidence reference and a confidence score whose components (evidence_strength,
-temporal_correlation, causal_distance, historical_frequency, rule_confidence) are
-exposed, not a single opaque number from an LLM. A `Finding.confidence` today is only
-the rule's own certainty about its specific anomaly — it is not yet a root-cause
-confidence.
+## 6. Root-cause engine (Phase 4 — built, partial)
 
-## 6. Storage interfaces (Phase 1)
+Consumes the list of `Finding`s plus the execution graph and ranks them into
+hypotheses, explicitly labeled — never "truth" (`pyagenthound/rootcause/`):
+
+```python
+class ConfidenceComponents(BaseModel):
+    evidence_strength: float          # = the underlying Finding's own confidence
+    causal_proximity: float           # graph-distance to the trace's final-output span
+    temporal_correlation: float | None = None   # Phase 4b (historical baselines) — not computed
+    historical_frequency: float | None = None   # Phase 4b (historical baselines) — not computed
+
+class RootCauseHypothesis(BaseModel):
+    hypothesis_id: str
+    finding_id: str
+    rule_id: str
+    category: FailureCategory
+    label: str  # "likely_cause" | "contributing_factor"
+    statement: str
+    evidence: list[Evidence]
+    affected_nodes: list[str]
+    confidence: float
+    confidence_components: ConfidenceComponents
+    recommendation: str | None
+```
+
+`rank_root_causes(trace, graph, findings=None)` turns each `Finding` into exactly one
+`RootCauseHypothesis` (calling `run_rules` itself if `findings` isn't passed in),
+computes its confidence from the **two components that are honestly computable
+today**, sorts by confidence descending, and labels the top hypothesis
+`likely_cause` — everything else is `contributing_factor`:
+
+- **`evidence_strength`** — the originating `Finding.confidence` directly.
+- **`causal_proximity`** — how many `PARENT`-edge hops separate the finding's span
+  from the span with the latest `end_time` in the trace (a proxy for "the span that
+  produced the final output"). Computed by walking the execution graph's `PARENT`
+  edges upward from the final span until either the finding's span is reached (score
+  `1/(1+hops)`) or the walk exhausts without finding it (fixed low score `0.3` — the
+  finding is real, just not on the path to the final output, e.g. a parallel branch).
+- **`temporal_correlation`** and **`historical_frequency`** are left `None` — they
+  require historical baseline storage (product spec section 6.8), which doesn't
+  exist yet. Exposing a fabricated number for either would be worse than omitting
+  them; the overall `confidence` formula only ever combines the two real components
+  (`0.7 * evidence_strength + 0.3 * causal_proximity`). This is why Phase 4 is marked
+  "built, partial" rather than "built" — the confidence model exists and is honest
+  about what it does and doesn't account for, but two of its five documented
+  components (product spec section 6.7) are not implemented.
+
+No fabricated "observed consequence" (e.g. "incorrect answer") is generated — that
+would require ground truth about correctness, which nothing in this system has.
+
+Exposed via `GET /api/traces/{id}/root-cause` (section 10) and included in
+`pyagenthound analyze`'s output, after the raw findings.
+
+## 7. Storage interfaces (Phase 1)
 
 ```python
 class TraceStore(Protocol):
@@ -180,7 +231,7 @@ access patterns Phase 1 needs). The `TraceStore` Protocol exists specifically so
 `PostgresTraceStore` can be added later (multi-user/production deployments) without
 any caller changing.
 
-## 7. SDK API (Phase 1)
+## 8. SDK API (Phase 1)
 
 ```python
 from pyagenthound import AgentHound, SpanType
@@ -213,7 +264,7 @@ Export is local-first and split by whether `endpoint` is configured:
 Async/batched/sampled export (perf work) is **not implemented in Phase 1** — noted as
 a known limitation rather than faked.
 
-## 8. Why not just use the OpenTelemetry SDK directly?
+## 9. Why not just use the OpenTelemetry SDK directly?
 
 The domain model is intentionally OTel-*compatible* (same core fields) so an
 ingestion adapter can accept real OTel traces later (Phase 6) without a model change.
@@ -222,23 +273,28 @@ processor/resource abstractions PyAgentHound doesn't need yet, for a feature
 (ingesting traces from other tools) nothing in Phase 1 uses. Phase 6 adds an adapter
 that maps OTel spans → PyAgentHound `Span`s; it does not replace the native SDK.
 
-## 9. API contract (Phase 1-3)
+## 10. API contract (Phase 1-4)
 
 FastAPI app (`pyagenthound/api/app.py`), OpenAPI docs auto-served at `/docs`.
 
-| Method | Path                       | Purpose                                     |
-|--------|----------------------------|------------------------------------------------|
-| POST   | `/api/traces`              | Ingest one completed trace (with spans)     |
-| GET    | `/api/traces`              | List traces (`limit`, `offset`, `status`)   |
-| GET    | `/api/traces/{id}`         | Full trace detail with spans                |
-| GET    | `/api/traces/{id}/graph`   | Execution graph for the trace (section 4)   |
-| POST   | `/api/traces/{id}/analyze` | Run the deterministic rule engine, return `list[Finding]` (section 5) |
+| Method | Path                           | Purpose                                     |
+|--------|--------------------------------|------------------------------------------------|
+| POST   | `/api/traces`                  | Ingest one completed trace (with spans)     |
+| GET    | `/api/traces`                  | List traces (`limit`, `offset`, `status`)   |
+| GET    | `/api/traces/{id}`             | Full trace detail with spans                |
+| GET    | `/api/traces/{id}/graph`       | Execution graph for the trace (section 4)   |
+| POST   | `/api/traces/{id}/analyze`     | Run the deterministic rule engine, return `list[Finding]` (section 5) |
+| GET    | `/api/traces/{id}/root-cause`  | Ranked `list[RootCauseHypothesis]` (section 6) |
 
-Replay/evaluation-related endpoints from the product spec's full API surface
-(section 19) are intentionally absent — those engines don't exist yet, and an
-endpoint returning a stub payload would be worse than no endpoint.
+`root-cause` as a separate `GET` endpoint (rather than folding it into `analyze`) is
+a deliberate deviation from the product spec's endpoint list (section 19), which
+predates findings and root-cause hypotheses being distinct concerns in this
+codebase — keeping them separate avoided a breaking change to `analyze`'s already-
+tested response shape. Replay/evaluation-related endpoints are intentionally absent
+— those engines don't exist yet, and an endpoint returning a stub payload would be
+worse than no endpoint.
 
-## 10. Security / privacy boundaries (Phase 1 reality)
+## 11. Security / privacy boundaries (Phase 1 reality)
 
 Phase 1 is local-only: SQLite file on disk, no auth, no network calls except the
 optional HTTP export to a `pyagenthound serve` instance the developer is also running
@@ -249,15 +305,16 @@ nothing is transmitted anywhere unless `endpoint` is explicitly set by the calle
 Configurable capture modes (metadata-only / full-content / hashed-content) are a
 documented future capability, not built.
 
-## 11. Testing strategy
+## 12. Testing strategy
 
 - **Unit** — `tests/unit/`: model serialization round-trips, SDK context-manager/
   decorator nesting and error capture, SQLite store save/get/list round-trips, graph
   construction (parent tree, dangling-parent fallback, the `RETRIEVAL` extractor,
   query methods including `ancestors`), each of the 5 built-in rules (positive and
-  negative case) plus `run_rules` aggregation.
+  negative case) plus `run_rules` aggregation, root-cause ranking (causal proximity
+  at varying graph depths, `likely_cause` vs `contributing_factor` labeling).
 - **Integration** — `tests/integration/`: FastAPI `TestClient` against a temp SQLite
-  db (full ingest → list → get → graph → analyze flow), CLI commands (`init`,
-  `inspect`, `analyze`) against a fixture db.
+  db (full ingest → list → get → graph → analyze → root-cause flow), CLI commands
+  (`init`, `inspect`, `analyze`) against a fixture db.
 - No test depends on a real external LLM API — there are none in Phase 1's scope, and
   this constraint carries forward as later phases add LLM-powered analysis.

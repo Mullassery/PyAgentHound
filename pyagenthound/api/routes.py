@@ -1,4 +1,4 @@
-"""API contract. See docs/architecture.md section 9."""
+"""API contract. See docs/architecture.md section 10."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from pyagenthound.graph.builder import build_graph
 from pyagenthound.graph.models import ExecutionGraph
+from pyagenthound.rootcause.engine import rank_root_causes
+from pyagenthound.rootcause.models import RootCauseHypothesis
 from pyagenthound.rules.engine import run_rules
 from pyagenthound.rules.models import Finding
 from pyagenthound.sdk.models import SpanStatus, Trace, TraceSummary
@@ -45,6 +47,13 @@ def analyze_trace(trace_id: str, request: Request) -> list[Finding]:
     trace = _get_trace_or_404(trace_id, request)
     graph = build_graph(trace)
     return run_rules(trace, graph)
+
+
+@router.get("/traces/{trace_id}/root-cause")
+def get_trace_root_cause(trace_id: str, request: Request) -> list[RootCauseHypothesis]:
+    trace = _get_trace_or_404(trace_id, request)
+    graph = build_graph(trace)
+    return rank_root_causes(trace, graph)
 
 
 def _get_trace_or_404(trace_id: str, request: Request) -> Trace:

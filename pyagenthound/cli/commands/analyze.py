@@ -5,6 +5,7 @@ from rich.console import Console
 
 from pyagenthound.config import DEFAULT_DB_PATH
 from pyagenthound.graph.builder import build_graph
+from pyagenthound.rootcause.engine import rank_root_causes
 from pyagenthound.rules.engine import run_rules
 from pyagenthound.storage.sqlite_store import SQLiteTraceStore
 
@@ -15,15 +16,22 @@ _SEVERITY_COLOR = {
     "LOW": "dim",
 }
 
+_LABEL_TEXT = {
+    "likely_cause": "Likely cause",
+    "contributing_factor": "Contributing factor",
+}
+
 
 @click.command("analyze")
 @click.argument("trace_id")
 @click.option("--db", "db_path", default=str(DEFAULT_DB_PATH), show_default=True)
 def analyze_command(trace_id: str, db_path: str) -> None:
-    """Run the deterministic rule engine against a captured trace and print findings.
+    """Run the deterministic rule engine + root-cause ranking against a captured
+    trace and print findings and ranked hypotheses.
 
-    There is no root-cause engine yet (Phase 4) — this prints detected anomalies with
-    their evidence, not a ranked "likely cause."
+    There is no historical baseline yet (Phase 4b) — root-cause confidence is built
+    only from the finding's own evidence and its graph proximity to the trace's
+    final output, never from an LLM guessing a number.
     """
     store = SQLiteTraceStore(db_path)
     trace = store.get_trace(trace_id)
@@ -44,6 +52,7 @@ def analyze_command(trace_id: str, db_path: str) -> None:
         )
         return
 
+    console.print("\n[bold]Findings[/bold]")
     for finding in findings:
         color = _SEVERITY_COLOR.get(finding.severity.value, "white")
         console.print(f"\n[{color}]{finding.severity.value}[/{color}]  {finding.title}")
@@ -53,3 +62,17 @@ def analyze_command(trace_id: str, db_path: str) -> None:
         console.print(f"  confidence: {finding.confidence:.2f}")
         if finding.recommendation:
             console.print(f"  recommendation: {finding.recommendation}")
+
+    hypotheses = rank_root_causes(trace, graph, findings)
+    console.print("\n[bold]Root Cause Analysis[/bold] (deterministic estimate, not verified truth)")
+    for hypothesis in hypotheses:
+        label = _LABEL_TEXT[hypothesis.label]
+        components = hypothesis.confidence_components
+        console.print(f"\n{label}: {hypothesis.statement}")
+        console.print(
+            f"  confidence: {hypothesis.confidence:.2f}  "
+            f"(evidence_strength={components.evidence_strength:.2f}, "
+            f"causal_proximity={components.causal_proximity:.2f})"
+        )
+        if hypothesis.recommendation:
+            console.print(f"  recommendation: {hypothesis.recommendation}")

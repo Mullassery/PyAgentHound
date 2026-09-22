@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Phase 4: root-cause engine (`pyagenthound/rootcause/`) — `ConfidenceComponents`/
+  `RootCauseHypothesis` domain model, `rank_root_causes()`. Turns findings into
+  ranked `likely_cause`/`contributing_factor` hypotheses using two real confidence
+  components (`evidence_strength`, `causal_proximity`); `temporal_correlation` and
+  `historical_frequency` stay `None` pending historical baseline storage (not
+  built). Exposed via `GET /api/traces/{id}/root-cause` and folded into
+  `pyagenthound analyze`'s output.
 - Phase 3: deterministic rule engine (`pyagenthound/rules/`) — `Finding`/`Evidence`/
   `FailureCategory`/`Severity` domain model, `Rule` protocol, `run_rules()`, and 5
   built-in rules (`empty_retrieval`, `stale_retrieval_documents`,
