@@ -6,10 +6,11 @@ pyagenthound init
 python examples/minimal_trace.py
 pyagenthound inspect <trace_id>   # trace_id is printed by the example
 pyagenthound analyze <trace_id>   # findings + ranked root-cause hypotheses
+pyagenthound replay <trace_id> --set 'retrieval.documents=[]'   # try a fix, see if it clears
 ```
 
-That's the whole loop: instrument → capture → inspect → analyze, entirely local, no
-server required.
+That's the whole loop: instrument → capture → inspect → analyze → replay, entirely
+local, no server required.
 
 ## With the API server
 
@@ -35,14 +36,19 @@ curl http://localhost:8787/api/traces/<trace_id>
 curl http://localhost:8787/api/traces/<trace_id>/graph
 curl -X POST http://localhost:8787/api/traces/<trace_id>/analyze
 curl http://localhost:8787/api/traces/<trace_id>/root-cause
+curl -X POST http://localhost:8787/api/traces/<trace_id>/replay \
+  -H 'Content-Type: application/json' \
+  -d '{"overrides": {"<span_id>": {"documents": []}}}'
 ```
 
 If a prior successful execution with the same `trace` name exists in the same
 database, `analyze`/`root-cause` automatically diff against it (model/prompt/
 retriever/tools/latency/tokens/execution path) and factor that into the root-cause
-confidence — see `../docs/architecture.md` section 6.
+confidence — see `../docs/architecture.md` section 6. `replay` refuses (`409`) to
+override a non-`READ_ONLY` span unless the request also sets `"allow_unsafe": true`
+— see section 13.
 
 ## What's not here yet
 
-No web UI, no replay, no evaluation — see `../ROADMAP_HONEST.md` for exactly what's
-built vs. planned.
+No web UI, no evaluation — see `../ROADMAP_HONEST.md` for exactly what's built vs.
+planned.

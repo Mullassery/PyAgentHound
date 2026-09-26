@@ -1,7 +1,7 @@
 # PyAgentHound — Honest Status
 
-**Current Version:** unreleased, Phase 5 (pre-0.1.0)
-**Last Updated:** 2026-09-26
+**Current Version:** unreleased, Phase 6 (pre-0.1.0)
+**Last Updated:** 2026-09-27
 
 This file exists to say plainly what's built-and-verified, what's not built yet, and
 what's a known, documented limitation vs. a future feature. `README.md` and
@@ -23,11 +23,13 @@ actually verified this" companion, so roadmap planning starts from reality.
   are caught and logged, never raised into the host app.
 - **API** — FastAPI app with `POST /api/traces`, `GET /api/traces` (`limit`,
   `offset`, `status`, `name`), `GET /api/traces/{id}`, `GET /api/traces/{id}/graph`,
-  `POST /api/traces/{id}/analyze`, `GET /api/traces/{id}/root-cause`; OpenAPI docs
-  at `/docs`.
+  `POST /api/traces/{id}/analyze`, `GET /api/traces/{id}/root-cause`,
+  `POST /api/traces/{id}/replay` (`409` if an unconfirmed unsafe override is
+  requested); OpenAPI docs at `/docs`.
 - **CLI** — `pyagenthound init`, `pyagenthound serve`, `pyagenthound inspect <id>`,
   `pyagenthound analyze <id>` (prints findings, baseline comparison when available,
-  and ranked root-cause hypotheses).
+  and ranked root-cause hypotheses), `pyagenthound replay <id> --set NAME.KEY=VALUE
+  [--allow-unsafe]`.
 - **Execution graph** — `pyagenthound/graph/`: `Node`/`Edge`/`ExecutionGraph` domain
   model with query methods (`nodes_by_type`, `edges_by_relationship`,
   `nodes_in_window`, `outgoing`/`incoming`/`neighbors`, `ancestors`); `build_graph()`
@@ -63,6 +65,17 @@ actually verified this" companion, so roadmap planning starts from reality.
   causal claim), `historical_rule_frequencies()` (fraction of recent same-named
   traces where a given `rule_id` also fired). Wired into `POST .../analyze`,
   `GET .../root-cause`, and `pyagenthound analyze`.
+- **Replay** — `pyagenthound/replay/`: `classify_span_safety()` (READ_ONLY/WRITE/
+  DESTRUCTIVE/UNKNOWN, conservative defaults — only RETRIEVAL/EMBEDDING/RERANKING/
+  LLM/PROMPT default to READ_ONLY, everything else UNKNOWN unless explicitly
+  annotated), `build_plan()`, `apply_overrides()` (clones a trace with fresh ids +
+  per-span attribute overrides — a counterfactual edit, not a re-invocation of the
+  agent), `run_replay()` (safety-gated: raises `UnsafeReplayError` for an
+  unconfirmed non-READ_ONLY override; otherwise re-runs the rule engine on both
+  traces and returns the finding diff). Verified end to end against the real
+  stale-document scenario: overriding `retrieval.documents` to just the current
+  policy resolved `stale_retrieval_documents` (1 finding → 0), via both
+  `pyagenthound replay` and `POST .../replay`.
 
 Re-verify this list's "🟢" claims by actually running `pytest -q` — a memory of "it
 passed once" is not the same as it passing now.
@@ -81,7 +94,8 @@ a stable shape, but zero implementation exists:
   guardrails, output schema violations, etc. (model/prompt change detection is
   now covered by baseline comparison, not a rule-engine rule).
 - LLM-powered (optional) analysis layer.
-- Replay (including the READ_ONLY/WRITE/DESTRUCTIVE safety classification).
+- Replaying by actually re-invoking a live model/tool/retriever — today's replay
+  only edits recorded attributes and re-analyzes; it never calls anything.
 - Regression test suite / `pyagenthound test` CLI command.
 - Full data/context lineage beyond the single `RETRIEVAL` → `DOCUMENT` extractor.
 

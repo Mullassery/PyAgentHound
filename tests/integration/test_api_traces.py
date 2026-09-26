@@ -190,3 +190,60 @@ def test_root_cause_sets_temporal_correlation_from_baseline(tmp_path):
     hypotheses = resp.json()
     model_change = next(h for h in hypotheses if h["rule_id"] == "baseline_model_changed")
     assert model_change["confidence_components"]["temporal_correlation"] == 1.0
+
+
+def test_replay_resolves_finding(tmp_path):
+    client = _client(tmp_path)
+
+    trace = Trace(name="req")
+    retrieval = Span(
+        trace_id=trace.trace_id,
+        name="retrieval",
+        span_type=SpanType.RETRIEVAL,
+        attributes={
+            "documents": [
+                {"id": "a", "date": "2024-01-01"},
+                {"id": "b", "date": "2026-01-01"},
+            ]
+        },
+    )
+    trace.spans.append(retrieval)
+    client.post("/api/traces", json=trace.model_dump(mode="json"))
+
+    resp = client.post(
+        f"/api/traces/{trace.trace_id}/replay",
+        json={"overrides": {retrieval.span_id: {"documents": [{"id": "b", "date": "2026-01-01"}]}}},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "stale_retrieval_documents" in body["resolved_rule_ids"]
+
+    replayed = client.get(f"/api/traces/{body['replayed_trace_id']}")
+    assert replayed.status_code == 200
+
+
+def test_replay_requires_confirmation_for_unsafe_override(tmp_path):
+    client = _client(tmp_path)
+
+    trace = Trace(name="req")
+    tool = Span(trace_id=trace.trace_id, name="tool", span_type=SpanType.TOOL)
+    trace.spans.append(tool)
+    client.post("/api/traces", json=trace.model_dump(mode="json"))
+
+    resp = client.post(
+        f"/api/traces/{trace.trace_id}/replay",
+        json={"overrides": {tool.span_id: {"args": {}}}},
+    )
+    assert resp.status_code == 409
+
+    resp = client.post(
+        f"/api/traces/{trace.trace_id}/replay",
+        json={"overrides": {tool.span_id: {"args": {}}}, "allow_unsafe": True},
+    )
+    assert resp.status_code == 200
+
+
+def test_replay_404(tmp_path):
+    resp = _client(tmp_path).post("/api/traces/does-not-exist/replay", json={"overrides": {}})
+    assert resp.status_code == 404

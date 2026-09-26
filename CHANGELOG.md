@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Phase 6: replay (`pyagenthound/replay/`) — `classify_span_safety()`
+  (READ_ONLY/WRITE/DESTRUCTIVE/UNKNOWN, conservative defaults), `build_plan()`,
+  `apply_overrides()` (clones a trace with fresh ids + per-span attribute
+  overrides — a counterfactual edit, never a re-invocation of the agent),
+  `run_replay()` (safety-gated; re-runs the rule engine on both traces and returns
+  the finding diff). `POST /api/traces/{id}/replay` (`409` on an unconfirmed unsafe
+  override) and `pyagenthound replay <id> --set NAME.KEY=VALUE [--allow-unsafe]`.
 - Phase 5: historical baselines (`pyagenthound/baseline/`) — `ExecutionSignature`/
   `extract_signature()`, `find_baseline()` (most recent prior `status=OK` execution
   of the same named workflow), `compare_to_baseline()` (model/prompt/retriever/

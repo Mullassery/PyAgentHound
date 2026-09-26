@@ -30,7 +30,7 @@ Four kinds of statements the system can make, never conflated:
   evidence-referenced, never presented as fact.
 - **Recommendations** — remediation hints attached to a finding/category.
 
-## 2. MVP boundary (Phase 1-5)
+## 2. MVP boundary (Phase 1-6)
 
 Phase 1 delivered the substrate everything else builds on: capture a trace, store it,
 retrieve it, look at it. Phase 2 added the execution graph — spans plus their
@@ -42,10 +42,12 @@ cause" plus "contributing factors". Phase 5 added historical baselines — compa
 trace against the most recent prior successful execution of the same named workflow,
 which completes the confidence model's remaining two components
 (`temporal_correlation`, `historical_frequency`) for findings where comparable
-history exists. Still no web UI, no replay, no eval. Concretely, Phase 1-5 = SDK +
-tracing model + SQLite storage + execution graph + rule engine (5 built-in rules) +
-root-cause ranking + historical baseline comparison + a 6-endpoint API + a 4-command
-CLI. See `ROADMAP_HONEST.md` for the authoritative built-vs-not list.
+history exists. Phase 6 added replay — clone a trace, override span attributes,
+re-run the finding engine, and see whether the anomaly clears (section 13). Still no
+web UI, no eval. Concretely, Phase 1-6 = SDK + tracing model + SQLite storage +
+execution graph + rule engine (5 built-in rules) + root-cause ranking + historical
+baseline comparison + replay + a 7-endpoint API + a 5-command CLI. See
+`ROADMAP_HONEST.md` for the authoritative built-vs-not list.
 
 ## 3. Domain models (Phase 1)
 
@@ -307,7 +309,7 @@ processor/resource abstractions PyAgentHound doesn't need yet, for a feature
 (ingesting traces from other tools) nothing in Phase 1 uses. Phase 6 adds an adapter
 that maps OTel spans → PyAgentHound `Span`s; it does not replace the native SDK.
 
-## 10. API contract (Phase 1-5)
+## 10. API contract (Phase 1-6)
 
 FastAPI app (`pyagenthound/api/app.py`), OpenAPI docs auto-served at `/docs`.
 
@@ -319,14 +321,15 @@ FastAPI app (`pyagenthound/api/app.py`), OpenAPI docs auto-served at `/docs`.
 | GET    | `/api/traces/{id}/graph`       | Execution graph for the trace (section 4)   |
 | POST   | `/api/traces/{id}/analyze`     | Run the deterministic rule engine + baseline comparison, return `list[Finding]` (sections 5-6) |
 | GET    | `/api/traces/{id}/root-cause`  | Ranked `list[RootCauseHypothesis]` (section 6), baseline-aware |
+| POST   | `/api/traces/{id}/replay`      | Clone + override + re-analyze, return `ReplayResult` (section 13); `409` if an unconfirmed non-`READ_ONLY` override is requested |
 
 `root-cause` as a separate `GET` endpoint (rather than folding it into `analyze`) is
 a deliberate deviation from the product spec's endpoint list (section 19), which
 predates findings and root-cause hypotheses being distinct concerns in this
 codebase — keeping them separate avoided a breaking change to `analyze`'s already-
-tested response shape. Replay/evaluation-related endpoints are intentionally absent
-— those engines don't exist yet, and an endpoint returning a stub payload would be
-worse than no endpoint.
+tested response shape. Evaluation has no API endpoint by design (section 14) —
+test cases are file-based, meant to be committed to version control and run by
+`pyagenthound test` in CI, not served.
 
 ## 11. Security / privacy boundaries (Phase 1 reality)
 
@@ -354,5 +357,73 @@ documented future capability, not built.
   db (full ingest → list → get → graph → analyze → root-cause flow, plus a two-trace
   baseline scenario verifying `temporal_correlation` gets set), CLI commands
   (`init`, `inspect`, `analyze` with and without a baseline) against a fixture db.
+  and root-cause ranking, plus a two-trace baseline scenario verifying
+  `temporal_correlation`), CLI commands (`init`, `inspect`, `analyze` with and
+  without a baseline, `replay` with and without an unsafe override) against a
+  fixture db.
 - No test depends on a real external LLM API — there are none in Phase 1's scope, and
   this constraint carries forward as later phases add LLM-powered analysis.
+
+## 13. Replay (Phase 6 — built)
+
+PyAgentHound observes traces; it does not own the agent's runtime. It cannot
+honestly "call the LLM again" or "re-run the tool" — it has no API keys, no access to
+the original function, often not even the original process. What it *can* do
+honestly: clone a captured trace, apply attribute overrides to specific spans (a
+counterfactual edit of already-captured data), and re-run the finding engine to see
+whether the anomaly clears. This is the literal mechanism behind the product spec's
+demo workflow (section 27): "fix retrieval, replay, see it resolved" — "fixing
+retrieval" here means overriding the `RETRIEVAL` span's `documents` attribute to
+what a corrected retriever *would* have returned, not actually querying a vector DB
+again.
+
+`pyagenthound/replay/`:
+
+```python
+class SafetyLevel(str, Enum):
+    READ_ONLY = "READ_ONLY"
+    WRITE = "WRITE"
+    DESTRUCTIVE = "DESTRUCTIVE"
+    UNKNOWN = "UNKNOWN"
+
+class ReplayResult(BaseModel):
+    original_trace_id: str
+    replayed_trace_id: str
+    plan: ReplayPlan
+    original_findings: list[Finding]
+    replayed_findings: list[Finding]
+    resolved_rule_ids: list[str]   # fired on the original, not on the replay
+    new_rule_ids: list[str]        # fired on the replay, not on the original
+```
+
+- `classify_span_safety(span)` — an explicit `span.attributes["safety"]` (set by the
+  developer at capture time) wins; otherwise only `RETRIEVAL`, `EMBEDDING`,
+  `RERANKING`, `LLM`, `PROMPT` default to `READ_ONLY` — every other span type
+  (`TOOL`, `MCP`, `API`, `DATABASE`, `MEMORY`, ...) defaults to `UNKNOWN`.
+  Conservative on purpose: an unannotated span is never assumed safe.
+- `build_plan(trace, overrides)` — a `ReplayStep` per span with its safety
+  classification and any proposed overrides; `ReplayPlan.requires_confirmation` is
+  true iff any *overridden* step's safety isn't `READ_ONLY`.
+- `apply_overrides(trace, overrides)` — clones the trace with fresh trace/span ids
+  (a real, separate, independently-inspectable trace — not a diff object) and merges
+  the given per-original-span-id attribute dict into each cloned span's attributes.
+  Tagged `"replay"`, with `metadata["replayed_from"]` pointing at the source trace.
+- `run_replay(store, trace, overrides, allow_unsafe=False)` — builds the plan; if it
+  `requires_confirmation` and `allow_unsafe` is false, raises `UnsafeReplayError`
+  (mapped to HTTP 409 by the API, a `ClickException` by the CLI) rather than silently
+  proceeding. Otherwise runs the rule engine on both the original and the replayed
+  trace, saves the replayed trace to the store (so it's inspectable like any other
+  trace), and returns the finding-set diff.
+
+Exposed via `POST /api/traces/{id}/replay` (section 10) and `pyagenthound replay
+<trace_id> --set NAME.KEY=VALUE [--allow-unsafe]`. Verified end to end against the
+actual stale-document scenario: overriding the `retrieval` span's `documents` to
+just the current policy version resolved `stale_retrieval_documents` (1 finding → 0)
+— real CLI/API output, not a scripted demo.
+
+Not built: re-invoking a live model/tool/retriever (would require the developer's
+own callable, which the current design doesn't accept — a documented future
+extension, not a limitation of the safety model itself), replaying against a
+different model/prompt *by calling it* (only by overriding the recorded attribute,
+which changes what the finding engine sees but not what any downstream system
+receives).

@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pyagenthound.baseline.engine import compare_to_baseline, find_baseline
 from pyagenthound.graph.builder import build_graph
 from pyagenthound.graph.models import ExecutionGraph
+from pyagenthound.replay.engine import UnsafeReplayError, run_replay
+from pyagenthound.replay.models import ReplayRequest, ReplayResult
 from pyagenthound.rootcause.engine import rank_root_causes
 from pyagenthound.rootcause.models import RootCauseHypothesis
 from pyagenthound.rules.engine import run_rules
@@ -61,6 +63,17 @@ def get_trace_root_cause(trace_id: str, request: Request) -> list[RootCauseHypot
     trace = _get_trace_or_404(trace_id, request)
     graph = build_graph(trace)
     return rank_root_causes(trace, graph, store=request.app.state.store)
+
+
+@router.post("/traces/{trace_id}/replay")
+def replay_trace(trace_id: str, body: ReplayRequest, request: Request) -> ReplayResult:
+    trace = _get_trace_or_404(trace_id, request)
+    try:
+        return run_replay(
+            request.app.state.store, trace, body.overrides, allow_unsafe=body.allow_unsafe
+        )
+    except UnsafeReplayError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 def _get_trace_or_404(trace_id: str, request: Request) -> Trace:

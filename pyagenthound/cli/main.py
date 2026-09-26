@@ -5,6 +5,7 @@ import click
 from pyagenthound.cli.commands.analyze import analyze_command
 from pyagenthound.cli.commands.init import init_command
 from pyagenthound.cli.commands.inspect import inspect_command
+from pyagenthound.cli.commands.replay import replay_command
 from pyagenthound.cli.commands.serve import serve_command
 
 
@@ -18,6 +19,7 @@ cli.add_command(init_command)
 cli.add_command(serve_command)
 cli.add_command(inspect_command)
 cli.add_command(analyze_command)
+cli.add_command(replay_command)
 
 
 if __name__ == "__main__":

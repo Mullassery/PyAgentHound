@@ -112,3 +112,67 @@ def test_analyze_shows_baseline_comparison(tmp_path):
     assert f"baseline: {baseline.trace_id}" in result.output
     assert "Model changed" in result.output
     assert "temporal_correlation" in result.output
+
+
+def test_replay_resolves_finding(tmp_path):
+    db_path = tmp_path / "t.db"
+    store = SQLiteTraceStore(db_path)
+    trace = Trace(name="req")
+    retrieval = Span(
+        trace_id=trace.trace_id,
+        name="retrieval",
+        span_type=SpanType.RETRIEVAL,
+        attributes={
+            "documents": [
+                {"id": "a", "date": "2024-01-01"},
+                {"id": "b", "date": "2026-01-01"},
+            ]
+        },
+    )
+    trace.spans.append(retrieval)
+    store.save_trace(trace)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "replay",
+            trace.trace_id,
+            "--set",
+            'retrieval.documents=[{"id": "b", "date": "2026-01-01"}]',
+            "--db",
+            str(db_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "resolved" in result.output
+    assert "stale_retrieval_documents" in result.output
+
+
+def test_replay_requires_confirmation_for_unsafe_override(tmp_path):
+    db_path = tmp_path / "t.db"
+    store = SQLiteTraceStore(db_path)
+    trace = Trace(name="req")
+    tool = Span(trace_id=trace.trace_id, name="tool", span_type=SpanType.TOOL)
+    trace.spans.append(tool)
+    store.save_trace(trace)
+
+    result = CliRunner().invoke(
+        cli, ["replay", trace.trace_id, "--set", "tool.args={}", "--db", str(db_path)]
+    )
+    assert result.exit_code != 0
+
+    result = CliRunner().invoke(
+        cli,
+        ["replay", trace.trace_id, "--set", "tool.args={}", "--allow-unsafe", "--db", str(db_path)],
+    )
+    assert result.exit_code == 0
+
+
+def test_replay_missing_trace_errors(tmp_path):
+    db_path = tmp_path / "t.db"
+    SQLiteTraceStore(db_path)
+
+    result = CliRunner().invoke(cli, ["replay", "nonexistent", "--db", str(db_path)])
+
+    assert result.exit_code != 0

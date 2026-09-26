@@ -2,12 +2,12 @@
 
 **Evidence-based debugging and root-cause analysis for AI agents and LLM applications.**
 
-> **Status: Phase 1-5 MVP.** Trace capture, storage, inspection, a queryable execution
-> graph, a deterministic rule engine (5 built-in rules), root-cause ranking, and
-> historical baseline comparison work end to end and are tested. LLM-powered
-> analysis, web UI, replay, and evaluation described below in "Where this is going"
-> are **not built yet** — see [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for the exact
-> built-vs-not line.
+> **Status: Phase 1-6 MVP.** Trace capture, storage, inspection, a queryable execution
+> graph, a deterministic rule engine (5 built-in rules), root-cause ranking,
+> historical baseline comparison, and safe replay work end to end and are tested.
+> LLM-powered analysis, web UI, and evaluation described below in "Where this is
+> going" are **not built yet** — see [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for the
+> exact built-vs-not line.
 
 ## The problem
 
@@ -53,7 +53,7 @@ HIGH  Retrieved documents include stale versions
 Root Cause Analysis (deterministic estimate, not verified truth)
 
 Likely cause: Retrieved documents include stale versions
-  confidence: 0.75  (evidence_strength=0.95, causal_proximity=0.30)
+  confidence: 0.73  (evidence_strength=0.95, causal_proximity=0.30)
   recommendation: Add a freshness filter or version-aware ranking boost...
 ```
 
@@ -107,7 +107,35 @@ example — a busier trace with more structure between the trace root and the fi
 span would score lower. `historical_frequency` only appears once there are multiple
 prior executions to check the pattern's recurrence against.
 
-## What works today (Phase 1-5)
+### Replay
+
+PyAgentHound doesn't own your agent's code, so it can't literally "call the LLM
+again." What it can do: clone the trace, override a span's recorded attributes with
+what a fix *would* have produced, and check whether the finding clears. Fixing the
+stale-retrieval scenario above by overriding the retrieval span to return only the
+current policy:
+
+```
+$ pyagenthound replay <trace_id> --set 'retrieval.documents=[{"id": "policy-2026", "date": "2026-01-01"}]'
+Replayed <trace_id> -> <replayed_trace_id>
+original findings: 1   replayed findings: 0
+resolved: stale_retrieval_documents
+
+inspect the replayed trace with:
+  pyagenthound inspect <replayed_trace_id>
+```
+
+Real, unedited — the finding really does go to zero. Overriding a `TOOL`/`MCP` span
+(or any span not explicitly annotated `safety=READ_ONLY`) is refused unless you pass
+`--allow-unsafe`:
+
+```
+$ pyagenthound replay <trace_id> --set 'charge_card.amount=999'
+Error: Replay would override non-READ_ONLY span(s) ['charge_card'] — pass
+allow_unsafe=True to confirm. (pass --allow-unsafe to confirm)
+```
+
+## What works today (Phase 1-6)
 
 - A Python SDK (`pyagenthound`) with an OpenTelemetry-compatible tracing model:
   traces, spans (with AI-specific `SpanType`s — `LLM`, `RETRIEVAL`, `TOOL`, `MCP`,
@@ -130,7 +158,11 @@ prior executions to check the pattern's recurrence against.
   successful execution of the same named workflow (model/prompt/retriever/tools/
   latency/tokens/execution path), and computes how often a given anomaly recurs
   across recent executions. Never claims causality, only states what changed.
-- A CLI to inspect and analyze what was captured.
+- Replay (`POST /api/traces/{id}/replay`, `pyagenthound replay`) — clone a trace,
+  override span attributes, and see whether a finding clears. Never re-invokes a
+  live model/tool; a `READ_ONLY`/`WRITE`/`DESTRUCTIVE`/`UNKNOWN` safety
+  classification refuses to override a non-`READ_ONLY` span without `--allow-unsafe`.
+- A CLI to inspect, analyze, and replay what was captured.
 
 ## Quickstart
 
@@ -157,6 +189,7 @@ with hound.trace("customer-support-request") as trace:
 ```bash
 pyagenthound inspect <trace_id>
 pyagenthound analyze <trace_id>
+pyagenthound replay <trace_id> --set 'retrieval.documents=[]'   # try a fix
 ```
 
 Full walkthrough, including the API server, in [`docs/quickstart.md`](docs/quickstart.md).
@@ -173,9 +206,10 @@ Execution graph with typed relationships and data lineage (built), deterministic
 rule engine (built — 5 rules; LLM-powered analysis is optional and additive, never
 required), root-cause ranking with an explicit, fully-implemented confidence model
 (built), historical baseline comparison (built), safe replay with a
-read/write/destructive safety classification, and a regression test suite you can
-run in CI. See [`docs/architecture.md`](docs/architecture.md) for the full design and
-[`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for what's actually shipped vs. planned at
+read/write/destructive safety classification (built), and a regression test suite
+you can run in CI. See [`docs/architecture.md`](docs/architecture.md) for the full
+design and [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for what's actually shipped vs.
+planned at
 any point in time.
 
 ## Design principles
