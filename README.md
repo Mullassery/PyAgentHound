@@ -2,12 +2,12 @@
 
 **Evidence-based debugging and root-cause analysis for AI agents and LLM applications.**
 
-> **Status: Phase 1-4 MVP.** Trace capture, storage, inspection, a queryable execution
-> graph, a deterministic rule engine (5 built-in rules), and root-cause ranking work
-> end to end and are tested. Historical baselines, LLM-powered analysis, web UI,
-> replay, and evaluation described below in "Where this is going" are **not built
-> yet** — see [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for the exact built-vs-not
-> line.
+> **Status: Phase 1-5 MVP.** Trace capture, storage, inspection, a queryable execution
+> graph, a deterministic rule engine (5 built-in rules), root-cause ranking, and
+> historical baseline comparison work end to end and are tested. LLM-powered
+> analysis, web UI, replay, and evaluation described below in "Where this is going"
+> are **not built yet** — see [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for the exact
+> built-vs-not line.
 
 ## The problem
 
@@ -63,13 +63,51 @@ computed, not an LLM guessing a number — but notice `causal_proximity` landed 
 children of the same parent) rather than parent→child, so today's simple
 graph-hop heuristic can't credit "retrieval feeds into the final answer" and falls
 back to its off-path default. That's an honest current limitation of the heuristic,
-not a hidden bug — see `docs/architecture.md` section 6. What's **not** real yet: a
-multi-hop "failure chain" (`stale_document → incorrect_context → incorrect_output`)
-and the `temporal_correlation`/`historical_frequency` confidence components, both of
-which need historical baseline storage across multiple traces (not built — see
-`ROADMAP_HONEST.md`).
+not a hidden bug — see `docs/architecture.md` section 6.
 
-## What works today (Phase 1-4)
+Only 2 of the 4 confidence components show up above because this particular trace
+had no prior execution to compare against. When one exists, `temporal_correlation`
+and `historical_frequency` are real too — see the baseline example below. What's
+**not** real yet, anywhere: a multi-hop "failure chain"
+(`stale_document → incorrect_context → incorrect_output`) — see `ROADMAP_HONEST.md`.
+
+### Historical baselines
+
+If a prior successful execution of the same named trace exists, PyAgentHound diffs
+model/prompt/retriever/tools/latency/tokens/execution-path against it — never
+claiming causality, only stating what changed:
+
+```
+$ pyagenthound analyze <trace_id>
+customer-support-request  (...)
+status: ERROR   findings: 1
+baseline: <baseline_trace_id> (most recent prior successful execution)
+
+Findings
+
+MEDIUM  Model changed since the last successful execution
+  model was 'gpt-4o' in the most recent successful execution (...) and is
+  'gpt-4-turbo' now. This is an observed change, not a claim that it caused
+  the current outcome.
+  confidence: 1.00
+  recommendation: Investigate whether the model change contributed to the current result.
+
+Root Cause Analysis (deterministic estimate, not verified truth)
+
+Likely cause: Model changed since the last successful execution
+  confidence: 0.87  (evidence_strength=1.00, causal_proximity=0.50, temporal_correlation=1.00)
+  recommendation: Investigate whether the model change contributed to the current result.
+```
+
+Also real, unedited. `temporal_correlation=1.00` here is genuine: baseline-comparison
+findings are, by construction, about a change between temporally adjacent
+executions. `causal_proximity=0.50` reflects that a baseline finding is anchored to
+the whole trace, one `PARENT`-edge hop from the single `llm` span in this minimal
+example — a busier trace with more structure between the trace root and the final
+span would score lower. `historical_frequency` only appears once there are multiple
+prior executions to check the pattern's recurrence against.
+
+## What works today (Phase 1-5)
 
 - A Python SDK (`pyagenthound`) with an OpenTelemetry-compatible tracing model:
   traces, spans (with AI-specific `SpanType`s — `LLM`, `RETRIEVAL`, `TOOL`, `MCP`,
@@ -88,6 +126,10 @@ which need historical baseline storage across multiple traces (not built — see
   `pyagenthound analyze`'s output) — turns findings into `likely_cause` /
   `contributing_factor` hypotheses with a confidence built from real, exposed
   components (see above).
+- Historical baseline comparison — diffs a trace against the most recent prior
+  successful execution of the same named workflow (model/prompt/retriever/tools/
+  latency/tokens/execution path), and computes how often a given anomaly recurs
+  across recent executions. Never claims causality, only states what changed.
 - A CLI to inspect and analyze what was captured.
 
 ## Quickstart
@@ -129,11 +171,10 @@ Trace → Graph → Evidence → Findings → Causal hypotheses → Replay → E
 
 Execution graph with typed relationships and data lineage (built), deterministic
 rule engine (built — 5 rules; LLM-powered analysis is optional and additive, never
-required), root-cause ranking with an explicit confidence model (built, partial —
-2 of the model's components are live, 2 need historical baselines that don't exist
-yet), historical baseline comparison, safe replay with a read/write/destructive
-safety classification, and a regression test suite you can run in CI. See
-[`docs/architecture.md`](docs/architecture.md) for the full design and
+required), root-cause ranking with an explicit, fully-implemented confidence model
+(built), historical baseline comparison (built), safe replay with a
+read/write/destructive safety classification, and a regression test suite you can
+run in CI. See [`docs/architecture.md`](docs/architecture.md) for the full design and
 [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for what's actually shipped vs. planned at
 any point in time.
 

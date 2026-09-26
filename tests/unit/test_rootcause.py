@@ -1,8 +1,15 @@
 from datetime import datetime, timedelta, timezone
 
 from pyagenthound.graph.builder import build_graph
-from pyagenthound.rootcause.engine import _causal_proximity, _hops_to_ancestor, rank_root_causes
+from pyagenthound.rootcause.engine import (
+    _causal_proximity,
+    _combine_confidence,
+    _hops_to_ancestor,
+    rank_root_causes,
+)
+from pyagenthound.rootcause.models import ConfidenceComponents
 from pyagenthound.sdk.models import Span, SpanError, SpanStatus, SpanType, Trace
+from pyagenthound.storage.sqlite_store import SQLiteTraceStore
 
 _T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -134,3 +141,71 @@ def test_rank_root_causes_orders_by_confidence_descending():
     assert confidences == sorted(confidences, reverse=True)
     assert hypotheses[0].label == "likely_cause"
     assert all(h.label == "contributing_factor" for h in hypotheses[1:])
+
+
+def test_combine_confidence_two_components_renormalizes():
+    components = ConfidenceComponents(evidence_strength=1.0, causal_proximity=0.5)
+
+    expected = round((0.4 * 1.0 + 0.2 * 0.5) / (0.4 + 0.2), 2)
+    assert _combine_confidence(components) == expected
+
+
+def test_combine_confidence_all_four_components():
+    components = ConfidenceComponents(
+        evidence_strength=1.0,
+        causal_proximity=0.5,
+        temporal_correlation=1.0,
+        historical_frequency=0.5,
+    )
+
+    expected = round(0.4 * 1.0 + 0.2 * 0.5 + 0.2 * 1.0 + 0.2 * 0.5, 2)
+    assert _combine_confidence(components) == expected
+
+
+def test_rank_root_causes_with_store_merges_baseline_and_sets_temporal_correlation(tmp_path):
+    store = SQLiteTraceStore(tmp_path / "t.db")
+    baseline = Trace(name="checkout", status=SpanStatus.OK, start_time=_at(0))
+    baseline.spans = [
+        Span(
+            trace_id=baseline.trace_id,
+            name="llm",
+            span_type=SpanType.LLM,
+            attributes={"model": "gpt-4o"},
+        )
+    ]
+    store.save_trace(baseline)
+
+    current = Trace(name="checkout", status=SpanStatus.ERROR, start_time=_at(10))
+    current.spans = [
+        Span(
+            trace_id=current.trace_id,
+            name="llm",
+            span_type=SpanType.LLM,
+            attributes={"model": "gpt-4-turbo"},
+        )
+    ]
+    store.save_trace(current)
+
+    graph = build_graph(current)
+    hypotheses = rank_root_causes(current, graph, store=store)
+
+    model_change = next(h for h in hypotheses if h.rule_id == "baseline_model_changed")
+    assert model_change.confidence_components.temporal_correlation == 1.0
+
+
+def test_rank_root_causes_without_store_leaves_temporal_and_historical_none():
+    trace = Trace(name="t")
+    trace.spans = [
+        Span(
+            trace_id=trace.trace_id,
+            name="retrieval",
+            span_type=SpanType.RETRIEVAL,
+            attributes={"documents": []},
+        )
+    ]
+    graph = build_graph(trace)
+
+    hypotheses = rank_root_causes(trace, graph)
+
+    assert hypotheses[0].confidence_components.temporal_correlation is None
+    assert hypotheses[0].confidence_components.historical_frequency is None

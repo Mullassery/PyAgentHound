@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from pyagenthound.baseline.engine import compare_to_baseline, find_baseline
 from pyagenthound.graph.builder import build_graph
 from pyagenthound.graph.models import ExecutionGraph
 from pyagenthound.rootcause.engine import rank_root_causes
@@ -27,8 +28,9 @@ def list_traces(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     status: SpanStatus | None = None,
+    name: str | None = None,
 ) -> list[TraceSummary]:
-    return request.app.state.store.list_traces(limit=limit, offset=offset, status=status)
+    return request.app.state.store.list_traces(limit=limit, offset=offset, status=status, name=name)
 
 
 @router.get("/traces/{trace_id}")
@@ -46,14 +48,19 @@ def get_trace_graph(trace_id: str, request: Request) -> ExecutionGraph:
 def analyze_trace(trace_id: str, request: Request) -> list[Finding]:
     trace = _get_trace_or_404(trace_id, request)
     graph = build_graph(trace)
-    return run_rules(trace, graph)
+    findings = run_rules(trace, graph)
+
+    baseline = find_baseline(request.app.state.store, trace)
+    if baseline is not None:
+        findings = [*findings, *compare_to_baseline(trace, baseline)]
+    return findings
 
 
 @router.get("/traces/{trace_id}/root-cause")
 def get_trace_root_cause(trace_id: str, request: Request) -> list[RootCauseHypothesis]:
     trace = _get_trace_or_404(trace_id, request)
     graph = build_graph(trace)
-    return rank_root_causes(trace, graph)
+    return rank_root_causes(trace, graph, store=request.app.state.store)
 
 
 def _get_trace_or_404(trace_id: str, request: Request) -> Trace:

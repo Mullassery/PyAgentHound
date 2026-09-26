@@ -30,14 +30,19 @@ with hound.trace("my-request") as trace:
 
 ```bash
 curl http://localhost:8787/api/traces
+curl "http://localhost:8787/api/traces?name=my-request"   # only traces of this workflow
 curl http://localhost:8787/api/traces/<trace_id>
 curl http://localhost:8787/api/traces/<trace_id>/graph
 curl -X POST http://localhost:8787/api/traces/<trace_id>/analyze
 curl http://localhost:8787/api/traces/<trace_id>/root-cause
 ```
 
+If a prior successful execution with the same `trace` name exists in the same
+database, `analyze`/`root-cause` automatically diff against it (model/prompt/
+retriever/tools/latency/tokens/execution path) and factor that into the root-cause
+confidence — see `../docs/architecture.md` section 6.
+
 ## What's not here yet
 
-No web UI, no historical baselines (so root-cause confidence only uses 2 of its 4
-documented components), no replay, no evaluation — see `../ROADMAP_HONEST.md` for
-exactly what's built vs. planned.
+No web UI, no replay, no evaluation — see `../ROADMAP_HONEST.md` for exactly what's
+built vs. planned.

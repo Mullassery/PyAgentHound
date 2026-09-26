@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Phase 5: historical baselines (`pyagenthound/baseline/`) — `ExecutionSignature`/
+  `extract_signature()`, `find_baseline()` (most recent prior `status=OK` execution
+  of the same named workflow), `compare_to_baseline()` (model/prompt/retriever/
+  tools/execution-path/latency/token-usage changes as `Finding`s, each an observed
+  change, never a causal claim), `historical_rule_frequencies()`. Completes the
+  root-cause confidence model — `temporal_correlation` and `historical_frequency`
+  are now real, computed values (previously always `None`). `list_traces` (storage +
+  API) gained a `name` filter to support this. Wired into `POST .../analyze`,
+  `GET .../root-cause`, and `pyagenthound analyze`.
 - Phase 4: root-cause engine (`pyagenthound/rootcause/`) — `ConfidenceComponents`/
   `RootCauseHypothesis` domain model, `rank_root_causes()`. Turns findings into
   ranked `likely_cause`/`contributing_factor` hypotheses using two real confidence

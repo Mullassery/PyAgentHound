@@ -3,6 +3,7 @@ from __future__ import annotations
 import click
 from rich.console import Console
 
+from pyagenthound.baseline.engine import compare_to_baseline, find_baseline
 from pyagenthound.config import DEFAULT_DB_PATH
 from pyagenthound.graph.builder import build_graph
 from pyagenthound.rootcause.engine import rank_root_causes
@@ -29,9 +30,11 @@ def analyze_command(trace_id: str, db_path: str) -> None:
     """Run the deterministic rule engine + root-cause ranking against a captured
     trace and print findings and ranked hypotheses.
 
-    There is no historical baseline yet (Phase 4b) — root-cause confidence is built
-    only from the finding's own evidence and its graph proximity to the trace's
-    final output, never from an LLM guessing a number.
+    If a prior successful execution of the same named trace exists in this
+    database, it's used as a baseline (model/prompt/retriever/tool/latency/token
+    changes become findings too) and feeds two of the root-cause confidence
+    components (temporal_correlation, historical_frequency) — see
+    docs/architecture.md section 6.
     """
     store = SQLiteTraceStore(db_path)
     trace = store.get_trace(trace_id)
@@ -41,9 +44,15 @@ def analyze_command(trace_id: str, db_path: str) -> None:
     graph = build_graph(trace)
     findings = run_rules(trace, graph)
 
+    baseline = find_baseline(store, trace)
+    if baseline is not None:
+        findings = [*findings, *compare_to_baseline(trace, baseline)]
+
     console = Console()
     console.print(f"[bold]{trace.name}[/bold]  ({trace.trace_id})")
     console.print(f"status: {trace.status.value}   findings: {len(findings)}")
+    if baseline is not None:
+        console.print(f"baseline: {baseline.trace_id} (most recent prior successful execution)")
 
     if not findings:
         console.print(
@@ -63,16 +72,20 @@ def analyze_command(trace_id: str, db_path: str) -> None:
         if finding.recommendation:
             console.print(f"  recommendation: {finding.recommendation}")
 
-    hypotheses = rank_root_causes(trace, graph, findings)
+    hypotheses = rank_root_causes(trace, graph, store=store)
     console.print("\n[bold]Root Cause Analysis[/bold] (deterministic estimate, not verified truth)")
     for hypothesis in hypotheses:
         label = _LABEL_TEXT[hypothesis.label]
-        components = hypothesis.confidence_components
+        c = hypothesis.confidence_components
+        parts = [
+            f"evidence_strength={c.evidence_strength:.2f}",
+            f"causal_proximity={c.causal_proximity:.2f}",
+        ]
+        if c.temporal_correlation is not None:
+            parts.append(f"temporal_correlation={c.temporal_correlation:.2f}")
+        if c.historical_frequency is not None:
+            parts.append(f"historical_frequency={c.historical_frequency:.2f}")
         console.print(f"\n{label}: {hypothesis.statement}")
-        console.print(
-            f"  confidence: {hypothesis.confidence:.2f}  "
-            f"(evidence_strength={components.evidence_strength:.2f}, "
-            f"causal_proximity={components.causal_proximity:.2f})"
-        )
+        console.print(f"  confidence: {hypothesis.confidence:.2f}  ({', '.join(parts)})")
         if hypothesis.recommendation:
             console.print(f"  recommendation: {hypothesis.recommendation}")

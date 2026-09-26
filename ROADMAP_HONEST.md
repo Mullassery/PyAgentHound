@@ -1,7 +1,7 @@
 # PyAgentHound — Honest Status
 
-**Current Version:** unreleased, Phase 4 (pre-0.1.0)
-**Last Updated:** 2026-09-22
+**Current Version:** unreleased, Phase 5 (pre-0.1.0)
+**Last Updated:** 2026-09-26
 
 This file exists to say plainly what's built-and-verified, what's not built yet, and
 what's a known, documented limitation vs. a future feature. `README.md` and
@@ -21,13 +21,13 @@ actually verified this" companion, so roadmap planning starts from reality.
 - **Export** — `LocalSQLiteExporter` (default, no server required) and
   `HTTPExporter` (POSTs to `{endpoint}/api/traces` when configured); export failures
   are caught and logged, never raised into the host app.
-- **API** — FastAPI app with `POST /api/traces`, `GET /api/traces`,
-  `GET /api/traces/{id}`, `GET /api/traces/{id}/graph`,
+- **API** — FastAPI app with `POST /api/traces`, `GET /api/traces` (`limit`,
+  `offset`, `status`, `name`), `GET /api/traces/{id}`, `GET /api/traces/{id}/graph`,
   `POST /api/traces/{id}/analyze`, `GET /api/traces/{id}/root-cause`; OpenAPI docs
   at `/docs`.
 - **CLI** — `pyagenthound init`, `pyagenthound serve`, `pyagenthound inspect <id>`,
-  `pyagenthound analyze <id>` (prints both findings and ranked root-cause
-  hypotheses).
+  `pyagenthound analyze <id>` (prints findings, baseline comparison when available,
+  and ranked root-cause hypotheses).
 - **Execution graph** — `pyagenthound/graph/`: `Node`/`Edge`/`ExecutionGraph` domain
   model with query methods (`nodes_by_type`, `edges_by_relationship`,
   `nodes_in_window`, `outgoing`/`incoming`/`neighbors`, `ancestors`); `build_graph()`
@@ -46,14 +46,23 @@ actually verified this" companion, so roadmap planning starts from reality.
 - **Root-cause engine** — `pyagenthound/rootcause/`: `ConfidenceComponents`/
   `RootCauseHypothesis` domain model, `rank_root_causes()`. Turns each `Finding`
   into a hypothesis, ranks by confidence, labels the top one `likely_cause` and the
-  rest `contributing_factor`. Confidence combines two real, computed components —
-  `evidence_strength` (the finding's own confidence) and `causal_proximity`
-  (graph-hop distance from the finding's span to the trace's final-output span). The
-  other two documented components, `temporal_correlation` and
-  `historical_frequency`, are always `None` — not faked — because they need
-  historical baseline storage, which doesn't exist (see 🟡 below). No fabricated
-  "observed consequence" (e.g. claiming an answer was "incorrect") is generated;
-  that would require ground truth this system doesn't have.
+  rest `contributing_factor`. All four documented confidence components are
+  implemented (`evidence_strength`, `causal_proximity`, `temporal_correlation`,
+  `historical_frequency` — see next item for the last two), combined via a weighted
+  average that renormalizes over whichever are present for a given finding. No
+  fabricated "observed consequence" (e.g. claiming an answer was "incorrect") is
+  generated; that would require ground truth this system doesn't have.
+- **Historical baselines** — `pyagenthound/baseline/`: `ExecutionSignature` +
+  `extract_signature()` (model, prompt version, retriever, tools, latency, tokens,
+  execution path), `find_baseline()` (most recent prior `status=OK` execution with
+  the same `trace.name`), `compare_to_baseline()` (emits a `Finding` per changed
+  field — `baseline_model_changed`, `baseline_prompt_changed`,
+  `baseline_retriever_changed`, `baseline_tools_changed`,
+  `baseline_execution_path_changed`, `baseline_latency_regression`,
+  `baseline_token_growth` — every description states an observed change, never a
+  causal claim), `historical_rule_frequencies()` (fraction of recent same-named
+  traces where a given `rule_id` also fired). Wired into `POST .../analyze`,
+  `GET .../root-cause`, and `pyagenthound analyze`.
 
 Re-verify this list's "🟢" claims by actually running `pytest -q` — a memory of "it
 passed once" is not the same as it passing now.
@@ -67,12 +76,10 @@ a stable shape, but zero implementation exists:
   embedding inputs, reranking scores, etc.) — the registry pattern in
   `pyagenthound/graph/builder.py` supports adding these incrementally.
 - The remaining rules from product spec section 6.5 beyond the 5 built-in ones —
-  low-relevance retrieval, excessive/token-explosion context, prompt/model change
-  detection, malformed tool arguments, schema mismatches, tool/agent loops, timeout
-  propagation, failed guardrails, output schema violations, etc.
-- Historical baseline storage/comparison (product spec section 6.8) and the
-  `temporal_correlation`/`historical_frequency` confidence components and the
-  `baseline` parameter on `Rule.evaluate` that depend on it.
+  low-relevance retrieval, excessive/token-explosion context, malformed tool
+  arguments, schema mismatches, tool/agent loops, timeout propagation, failed
+  guardrails, output schema violations, etc. (model/prompt change detection is
+  now covered by baseline comparison, not a rule-engine rule).
 - LLM-powered (optional) analysis layer.
 - Replay (including the READ_ONLY/WRITE/DESTRUCTIVE safety classification).
 - Regression test suite / `pyagenthound test` CLI command.
@@ -92,11 +99,22 @@ a stable shape, but zero implementation exists:
 - PyPI publication.
 - Authentication on the API server (`pyagenthound serve` is meant for localhost).
 
-## Known Phase-1 limitations (not bugs, just not built)
+## Known limitations (not bugs, just not built)
 
 - Export is synchronous, unbatched, unsampled — fine for local dev, not designed for
   high-throughput production use yet.
 - No payload-size limits on spans; a very large `attributes`/`input`/`output` value
   will be stored as-is.
-- `list_traces` supports only `limit`/`offset`/`status` filtering — no full-text or
+- `list_traces` supports `limit`/`offset`/`status`/`name` filtering — no full-text or
   attribute search.
+- "Same logical workflow" for baseline purposes means `trace.name` matches exactly —
+  no fuzzy grouping, no per-tenant scoping. Two genuinely different workflows that
+  happen to share a name will be (incorrectly) compared against each other.
+- `historical_rule_frequencies` re-runs the full rule engine against every candidate
+  historical trace on every call — fine at the `lookback` default of 20 and local
+  SQLite scale, not optimized for a large trace history.
+- `causal_proximity`'s "final span = latest `end_time`" heuristic is a proxy, not a
+  real understanding of data flow — sibling spans (e.g. retrieval and the LLM call
+  that consumes its output, if not nested as parent→child) get the same low
+  off-path score as truly unrelated branches. See `docs/architecture.md` section 6
+  and the real example in `README.md`.

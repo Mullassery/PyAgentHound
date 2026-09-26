@@ -1,28 +1,59 @@
 """Root-cause ranking. See docs/architecture.md section 6.
 
 Turns each `Finding` into a `RootCauseHypothesis`, ranked by a confidence built from
-two graph/evidence-derived components (no historical baseline exists yet — see
-`ConfidenceComponents`), and labels the top-ranked hypothesis `likely_cause`.
+up to four components (`ConfidenceComponents`), and labels the top-ranked hypothesis
+`likely_cause`. `evidence_strength` and `causal_proximity` are always computable from
+the trace + graph alone. `temporal_correlation` and `historical_frequency` are only
+populated when a `store` is passed in, since they require looking at other traces —
+see `pyagenthound/baseline/`.
 """
 
 from __future__ import annotations
 
+from pyagenthound.baseline.engine import (
+    compare_to_baseline,
+    find_baseline,
+    historical_rule_frequencies,
+)
 from pyagenthound.graph.models import ExecutionGraph, Relationship
 from pyagenthound.rootcause.models import ConfidenceComponents, RootCauseHypothesis
 from pyagenthound.rules.engine import run_rules
 from pyagenthound.rules.models import Finding
 from pyagenthound.sdk.models import Span, Trace
+from pyagenthound.storage.base import TraceStore
 
-_EVIDENCE_STRENGTH_WEIGHT = 0.7
-_CAUSAL_PROXIMITY_WEIGHT = 0.3
 _OFF_PATH_PROXIMITY = 0.3
+
+# Relative importance of each confidence component when present. When a component is
+# None (no historical data available), its weight is dropped and the rest are
+# renormalized — see `_combine_confidence`.
+_WEIGHTS = {
+    "evidence_strength": 0.4,
+    "causal_proximity": 0.2,
+    "temporal_correlation": 0.2,
+    "historical_frequency": 0.2,
+}
 
 
 def rank_root_causes(
-    trace: Trace, graph: ExecutionGraph, findings: list[Finding] | None = None
+    trace: Trace,
+    graph: ExecutionGraph,
+    findings: list[Finding] | None = None,
+    store: TraceStore | None = None,
 ) -> list[RootCauseHypothesis]:
     if findings is None:
         findings = run_rules(trace, graph)
+
+    baseline_rule_ids: set[str] = set()
+    historical_frequencies: dict[str, float] = {}
+    if store is not None:
+        baseline = find_baseline(store, trace)
+        if baseline is not None:
+            baseline_findings = compare_to_baseline(trace, baseline)
+            findings = [*findings, *baseline_findings]
+            baseline_rule_ids = {f.rule_id for f in baseline_findings}
+        historical_frequencies = historical_rule_frequencies(store, trace)
+
     if not findings:
         return []
 
@@ -31,14 +62,11 @@ def rank_root_causes(
     hypotheses = []
     for finding in findings:
         span_node_id = finding.affected_nodes[0] if finding.affected_nodes else final_node_id
-        proximity = _causal_proximity(graph, span_node_id, final_node_id)
         components = ConfidenceComponents(
-            evidence_strength=finding.confidence, causal_proximity=proximity
-        )
-        confidence = round(
-            _EVIDENCE_STRENGTH_WEIGHT * components.evidence_strength
-            + _CAUSAL_PROXIMITY_WEIGHT * components.causal_proximity,
-            2,
+            evidence_strength=finding.confidence,
+            causal_proximity=_causal_proximity(graph, span_node_id, final_node_id),
+            temporal_correlation=1.0 if finding.rule_id in baseline_rule_ids else None,
+            historical_frequency=historical_frequencies.get(finding.rule_id),
         )
         hypotheses.append(
             RootCauseHypothesis(
@@ -49,7 +77,7 @@ def rank_root_causes(
                 statement=finding.title,
                 evidence=finding.evidence,
                 affected_nodes=finding.affected_nodes,
-                confidence=confidence,
+                confidence=_combine_confidence(components),
                 confidence_components=components,
                 recommendation=finding.recommendation,
             )
@@ -58,6 +86,13 @@ def rank_root_causes(
     hypotheses.sort(key=lambda h: h.confidence, reverse=True)
     hypotheses[0].label = "likely_cause"
     return hypotheses
+
+
+def _combine_confidence(components: ConfidenceComponents) -> float:
+    present = {k: v for k, v in components.model_dump().items() if v is not None}
+    total_weight = sum(_WEIGHTS[name] for name in present)
+    weighted_sum = sum(_WEIGHTS[name] * value for name, value in present.items())
+    return round(weighted_sum / total_weight, 2)
 
 
 def _final_node_id(trace: Trace) -> str:

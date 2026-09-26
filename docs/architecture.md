@@ -30,7 +30,7 @@ Four kinds of statements the system can make, never conflated:
   evidence-referenced, never presented as fact.
 - **Recommendations** — remediation hints attached to a finding/category.
 
-## 2. MVP boundary (Phase 1-4)
+## 2. MVP boundary (Phase 1-5)
 
 Phase 1 delivered the substrate everything else builds on: capture a trace, store it,
 retrieve it, look at it. Phase 2 added the execution graph — spans plus their
@@ -38,13 +38,14 @@ attribute-derived entities (documents, for now) assembled into a queryable direc
 graph. Phase 3 added a deterministic rule engine that evaluates findings over that
 graph — the first component that actually *detects* something, rather than just
 recording it. Phase 4 added a root-cause engine that ranks findings into a "likely
-cause" plus "contributing factors" — but only the confidence-model components that
-don't require historical data (see section 6); temporal correlation and historical
-frequency stay unimplemented until baseline storage exists. Still no web UI, no
-replay, no eval, no historical baselines. Concretely, Phase 1-4 = SDK + tracing model
-+ SQLite storage + execution graph + rule engine (5 built-in rules) + root-cause
-ranking + a 6-endpoint API + a 4-command CLI. See `ROADMAP_HONEST.md` for the
-authoritative built-vs-not list.
+cause" plus "contributing factors". Phase 5 added historical baselines — comparing a
+trace against the most recent prior successful execution of the same named workflow,
+which completes the confidence model's remaining two components
+(`temporal_correlation`, `historical_frequency`) for findings where comparable
+history exists. Still no web UI, no replay, no eval. Concretely, Phase 1-5 = SDK +
+tracing model + SQLite storage + execution graph + rule engine (5 built-in rules) +
+root-cause ranking + historical baseline comparison + a 6-endpoint API + a 4-command
+CLI. See `ROADMAP_HONEST.md` for the authoritative built-vs-not list.
 
 ## 3. Domain models (Phase 1)
 
@@ -158,17 +159,18 @@ Exposed via `POST /api/traces/{id}/analyze` (section 10) and `pyagenthound analy
 A `Finding.confidence` is only the rule's own certainty about its specific anomaly —
 see section 6 for how that becomes a root-cause confidence.
 
-## 6. Root-cause engine (Phase 4 — built, partial)
+## 6. Root-cause engine + historical baselines (Phase 4-5 — built)
 
-Consumes the list of `Finding`s plus the execution graph and ranks them into
-hypotheses, explicitly labeled — never "truth" (`pyagenthound/rootcause/`):
+Consumes the list of `Finding`s plus the execution graph (and, when a `TraceStore`
+is available, historical data from other traces) and ranks them into hypotheses,
+explicitly labeled — never "truth" (`pyagenthound/rootcause/`):
 
 ```python
 class ConfidenceComponents(BaseModel):
-    evidence_strength: float          # = the underlying Finding's own confidence
-    causal_proximity: float           # graph-distance to the trace's final-output span
-    temporal_correlation: float | None = None   # Phase 4b (historical baselines) — not computed
-    historical_frequency: float | None = None   # Phase 4b (historical baselines) — not computed
+    evidence_strength: float
+    causal_proximity: float
+    temporal_correlation: float | None = None    # only set when a baseline exists
+    historical_frequency: float | None = None    # only set when comparable history exists
 
 class RootCauseHypothesis(BaseModel):
     hypothesis_id: str
@@ -184,11 +186,11 @@ class RootCauseHypothesis(BaseModel):
     recommendation: str | None
 ```
 
-`rank_root_causes(trace, graph, findings=None)` turns each `Finding` into exactly one
-`RootCauseHypothesis` (calling `run_rules` itself if `findings` isn't passed in),
-computes its confidence from the **two components that are honestly computable
-today**, sorts by confidence descending, and labels the top hypothesis
-`likely_cause` — everything else is `contributing_factor`:
+`rank_root_causes(trace, graph, findings=None, store=None)` turns each `Finding` into
+exactly one `RootCauseHypothesis`, sorts by confidence descending, and labels the top
+hypothesis `likely_cause` — everything else is `contributing_factor`. All four
+confidence components are implemented; only the last two are conditional on data that
+doesn't always exist:
 
 - **`evidence_strength`** — the originating `Finding.confidence` directly.
 - **`causal_proximity`** — how many `PARENT`-edge hops separate the finding's span
@@ -197,31 +199,63 @@ today**, sorts by confidence descending, and labels the top hypothesis
   edges upward from the final span until either the finding's span is reached (score
   `1/(1+hops)`) or the walk exhausts without finding it (fixed low score `0.3` — the
   finding is real, just not on the path to the final output, e.g. a parallel branch).
-- **`temporal_correlation`** and **`historical_frequency`** are left `None` — they
-  require historical baseline storage (product spec section 6.8), which doesn't
-  exist yet. Exposing a fabricated number for either would be worse than omitting
-  them; the overall `confidence` formula only ever combines the two real components
-  (`0.7 * evidence_strength + 0.3 * causal_proximity`). This is why Phase 4 is marked
-  "built, partial" rather than "built" — the confidence model exists and is honest
-  about what it does and doesn't account for, but two of its five documented
-  components (product spec section 6.7) are not implemented.
+- **`temporal_correlation`** — set to `1.0` for findings produced by baseline
+  comparison (see below), since those are by construction about a change between
+  temporally adjacent executions; `None` for ordinary rule-engine findings, which
+  have no "before/after" framing within a single trace.
+- **`historical_frequency`** — fraction of recent same-named traces where this exact
+  `rule_id` also fired (`historical_rule_frequencies`, below); `None` when `store`
+  isn't passed or no comparable history exists. A high frequency means the anomaly
+  is a recurring, familiar pattern — it is **not** by itself evidence that the
+  pattern is the correct root cause for *this* failure.
+
+Overall confidence is a weighted average over whichever components are present
+(`_combine_confidence`), weights `{evidence_strength: 0.4, causal_proximity: 0.2,
+temporal_correlation: 0.2, historical_frequency: 0.2}`, renormalized over the
+non-`None` subset — e.g. with only the first two present, confidence is
+`(0.4 × evidence_strength + 0.2 × causal_proximity) / 0.6`.
 
 No fabricated "observed consequence" (e.g. "incorrect answer") is generated — that
 would require ground truth about correctness, which nothing in this system has.
 
-Exposed via `GET /api/traces/{id}/root-cause` (section 10) and included in
-`pyagenthound analyze`'s output, after the raw findings.
+**Historical baselines** (`pyagenthound/baseline/`, product spec section 6.8):
 
-## 7. Storage interfaces (Phase 1)
+- `extract_signature(trace) -> ExecutionSignature` — a comparable summary: model,
+  prompt version, retriever, tools invoked, latency, token usage, execution path
+  (the ordered sequence of span types).
+- `find_baseline(store, trace)` — the most recent prior execution with `status=OK`
+  and the same `trace.name` (used as the "same logical workflow" key — a documented
+  heuristic, not semantic understanding of what the trace does).
+- `compare_to_baseline(trace, baseline) -> list[Finding]` — diffs the two signatures
+  and emits a `Finding` per changed field (`baseline_model_changed`,
+  `baseline_prompt_changed`, `baseline_retriever_changed`, `baseline_tools_changed`,
+  `baseline_execution_path_changed`, `baseline_latency_regression` /
+  `baseline_token_growth` for >1.5x numeric increases). Every description explicitly
+  states this is "an observed change, not a claim that it caused the current
+  outcome" — matching the product spec's "do not automatically claim causality."
+- `historical_rule_frequencies(store, trace)` — runs the stateless rule engine
+  against recent same-named traces (any status) and reports what fraction also
+  produced each `rule_id`, in one pass per historical trace (not per current
+  finding) to keep cost linear rather than quadratic.
+
+Exposed via `GET /api/traces/{id}/root-cause` (section 10, `store`-aware) and
+included in `pyagenthound analyze`'s output, after the raw findings — which also get
+baseline-comparison findings merged in when a baseline exists.
+
+## 7. Storage interfaces (Phase 1, extended Phase 5)
 
 ```python
 class TraceStore(Protocol):
     def init_schema(self) -> None: ...
     def save_trace(self, trace: Trace) -> None: ...
     def get_trace(self, trace_id: str) -> Trace | None: ...
-    def list_traces(self, limit: int = 50, offset: int = 0,
-                     status: SpanStatus | None = None) -> list[TraceSummary]: ...
+    def list_traces(self, limit: int = 50, offset: int = 0, status: SpanStatus | None = None,
+                     name: str | None = None) -> list[TraceSummary]: ...
 ```
+
+`name` was added in Phase 5 specifically so `find_baseline`/`historical_rule_frequencies`
+(section 6) can filter to "prior executions of this same logical workflow" with a real
+SQL `WHERE`, instead of over-fetching and filtering in Python.
 
 `SQLiteTraceStore` (`pyagenthound/storage/sqlite_store.py`) is the only Phase-1
 implementation — zero-config local dev per the product spec's storage section. Two
@@ -273,18 +307,18 @@ processor/resource abstractions PyAgentHound doesn't need yet, for a feature
 (ingesting traces from other tools) nothing in Phase 1 uses. Phase 6 adds an adapter
 that maps OTel spans → PyAgentHound `Span`s; it does not replace the native SDK.
 
-## 10. API contract (Phase 1-4)
+## 10. API contract (Phase 1-5)
 
 FastAPI app (`pyagenthound/api/app.py`), OpenAPI docs auto-served at `/docs`.
 
 | Method | Path                           | Purpose                                     |
 |--------|--------------------------------|------------------------------------------------|
 | POST   | `/api/traces`                  | Ingest one completed trace (with spans)     |
-| GET    | `/api/traces`                  | List traces (`limit`, `offset`, `status`)   |
+| GET    | `/api/traces`                  | List traces (`limit`, `offset`, `status`, `name`) |
 | GET    | `/api/traces/{id}`             | Full trace detail with spans                |
 | GET    | `/api/traces/{id}/graph`       | Execution graph for the trace (section 4)   |
-| POST   | `/api/traces/{id}/analyze`     | Run the deterministic rule engine, return `list[Finding]` (section 5) |
-| GET    | `/api/traces/{id}/root-cause`  | Ranked `list[RootCauseHypothesis]` (section 6) |
+| POST   | `/api/traces/{id}/analyze`     | Run the deterministic rule engine + baseline comparison, return `list[Finding]` (sections 5-6) |
+| GET    | `/api/traces/{id}/root-cause`  | Ranked `list[RootCauseHypothesis]` (section 6), baseline-aware |
 
 `root-cause` as a separate `GET` endpoint (rather than folding it into `analyze`) is
 a deliberate deviation from the product spec's endpoint list (section 19), which
@@ -308,13 +342,17 @@ documented future capability, not built.
 ## 12. Testing strategy
 
 - **Unit** — `tests/unit/`: model serialization round-trips, SDK context-manager/
-  decorator nesting and error capture, SQLite store save/get/list round-trips, graph
-  construction (parent tree, dangling-parent fallback, the `RETRIEVAL` extractor,
-  query methods including `ancestors`), each of the 5 built-in rules (positive and
-  negative case) plus `run_rules` aggregation, root-cause ranking (causal proximity
-  at varying graph depths, `likely_cause` vs `contributing_factor` labeling).
+  decorator nesting and error capture, SQLite store save/get/list round-trips (incl.
+  the `name` filter), graph construction (parent tree, dangling-parent fallback, the
+  `RETRIEVAL` extractor, query methods including `ancestors`), each of the 5
+  built-in rules (positive and negative case) plus `run_rules` aggregation,
+  root-cause ranking (causal proximity at varying graph depths, `likely_cause` vs
+  `contributing_factor` labeling, the weighted confidence combiner with 2 vs 4
+  components present), baseline signature extraction/comparison (each change type)
+  and historical rule frequency computation.
 - **Integration** — `tests/integration/`: FastAPI `TestClient` against a temp SQLite
-  db (full ingest → list → get → graph → analyze → root-cause flow), CLI commands
-  (`init`, `inspect`, `analyze`) against a fixture db.
+  db (full ingest → list → get → graph → analyze → root-cause flow, plus a two-trace
+  baseline scenario verifying `temporal_correlation` gets set), CLI commands
+  (`init`, `inspect`, `analyze` with and without a baseline) against a fixture db.
 - No test depends on a real external LLM API — there are none in Phase 1's scope, and
   this constraint carries forward as later phases add LLM-powered analysis.

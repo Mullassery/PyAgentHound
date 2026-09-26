@@ -1,4 +1,4 @@
-"""Storage interface. See docs/architecture.md section 6.
+"""Storage interface. See docs/architecture.md section 7.
 
 `SQLiteTraceStore` is the only Phase-1 implementation. This Protocol exists so a
 future Postgres-backed store can be added without any caller changing.
@@ -19,5 +19,9 @@ class TraceStore(Protocol):
     def get_trace(self, trace_id: str) -> Trace | None: ...
 
     def list_traces(
-        self, limit: int = 50, offset: int = 0, status: SpanStatus | None = None
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        status: SpanStatus | None = None,
+        name: str | None = None,
     ) -> list[TraceSummary]: ...

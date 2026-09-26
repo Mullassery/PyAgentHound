@@ -1,4 +1,4 @@
-"""SQLite implementation of TraceStore. See docs/architecture.md section 6."""
+"""SQLite implementation of TraceStore. See docs/architecture.md section 7."""
 
 from __future__ import annotations
 
@@ -135,17 +135,27 @@ class SQLiteTraceStore:
             )
 
     def list_traces(
-        self, limit: int = 50, offset: int = 0, status: SpanStatus | None = None
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        status: SpanStatus | None = None,
+        name: str | None = None,
     ) -> list[TraceSummary]:
         query = """
             SELECT t.trace_id, t.name, t.start_time, t.end_time, t.status, t.tags,
                    (SELECT COUNT(*) FROM spans s WHERE s.trace_id = t.trace_id) AS span_count
             FROM traces t
         """
+        conditions = []
         params: list[object] = []
         if status is not None:
-            query += " WHERE t.status = ?"
+            conditions.append("t.status = ?")
             params.append(status.value)
+        if name is not None:
+            conditions.append("t.name = ?")
+            params.append(name)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY t.start_time DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 

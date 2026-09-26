@@ -139,3 +139,54 @@ def test_root_cause_returns_ranked_hypotheses(tmp_path):
 def test_root_cause_404(tmp_path):
     resp = _client(tmp_path).get("/api/traces/does-not-exist/root-cause")
     assert resp.status_code == 404
+
+
+def test_list_traces_name_filter(tmp_path):
+    client = _client(tmp_path)
+    client.post("/api/traces", json=Trace(name="checkout").model_dump(mode="json"))
+    client.post("/api/traces", json=Trace(name="support").model_dump(mode="json"))
+
+    resp = client.get("/api/traces", params={"name": "checkout"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["name"] == "checkout"
+
+
+def _post_trace(client: TestClient, name: str, status: SpanStatus, model: str) -> Trace:
+    trace = Trace(name=name, status=status)
+    trace.spans.append(
+        Span(
+            trace_id=trace.trace_id,
+            name="llm",
+            span_type=SpanType.LLM,
+            attributes={"model": model},
+        )
+    )
+    client.post("/api/traces", json=trace.model_dump(mode="json"))
+    return trace
+
+
+def test_analyze_includes_baseline_findings_when_available(tmp_path):
+    client = _client(tmp_path)
+    _post_trace(client, "checkout", SpanStatus.OK, "gpt-4o")
+    current = _post_trace(client, "checkout", SpanStatus.ERROR, "gpt-4-turbo")
+
+    resp = client.post(f"/api/traces/{current.trace_id}/analyze")
+
+    assert resp.status_code == 200
+    findings = resp.json()
+    assert any(f["rule_id"] == "baseline_model_changed" for f in findings)
+
+
+def test_root_cause_sets_temporal_correlation_from_baseline(tmp_path):
+    client = _client(tmp_path)
+    _post_trace(client, "checkout", SpanStatus.OK, "gpt-4o")
+    current = _post_trace(client, "checkout", SpanStatus.ERROR, "gpt-4-turbo")
+
+    resp = client.get(f"/api/traces/{current.trace_id}/root-cause")
+
+    assert resp.status_code == 200
+    hypotheses = resp.json()
+    model_change = next(h for h in hypotheses if h["rule_id"] == "baseline_model_changed")
+    assert model_change["confidence_components"]["temporal_correlation"] == 1.0

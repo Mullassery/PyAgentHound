@@ -47,6 +47,20 @@ def test_list_traces_pagination_and_status_filter(tmp_path):
     assert len(store.list_traces(limit=1)) == 1
 
 
+def test_list_traces_name_filter(tmp_path):
+    store = SQLiteTraceStore(tmp_path / "t.db")
+    store.save_trace(Trace(name="checkout"))
+    store.save_trace(Trace(name="checkout"))
+    store.save_trace(Trace(name="support"))
+
+    checkout = store.list_traces(name="checkout")
+    assert len(checkout) == 2
+    assert all(t.name == "checkout" for t in checkout)
+
+    support = store.list_traces(name="support")
+    assert len(support) == 1
+
+
 def test_save_trace_upsert_updates_existing(tmp_path):
     store = SQLiteTraceStore(tmp_path / "t.db")
     trace = Trace(name="t")
