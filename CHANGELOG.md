@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Phase 7: evaluation / regression testing (`pyagenthound/evaluation/`) —
+  `TestCase`/`Assertion`/`AssertionResult`/`TestCaseResult` domain model, `evaluate()`
+  with 5 assertion types (`STATUS_OK`, `OUTPUT_CONTAINS`, `NO_FINDING` — checked
+  against the real rule engine, `SPAN_EXISTS`, `NO_TOOL_CALLED`), JSON file I/O.
+  `pyagenthound test <tests_dir>` runs every `*.json` test case, PASS/FAIL per case,
+  non-zero exit on failure for CI. No API endpoint by design — test cases are
+  file-based, meant for version control.
 - Phase 6: replay (`pyagenthound/replay/`) — `classify_span_safety()`
   (READ_ONLY/WRITE/DESTRUCTIVE/UNKNOWN, conservative defaults), `build_plan()`,
   `apply_overrides()` (clones a trace with fresh ids + per-span attribute

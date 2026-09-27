@@ -48,7 +48,23 @@ confidence — see `../docs/architecture.md` section 6. `replay` refuses (`409`)
 override a non-`READ_ONLY` span unless the request also sets `"allow_unsafe": true`
 — see section 13.
 
+## Regression testing
+
+Hand-author a JSON test case (see `../docs/architecture.md` section 14 for the full
+assertion list) referencing a trace already in the database:
+
+```json
+{
+  "name": "my_test",
+  "trace_id": "<trace_id>",
+  "assertions": [{"type": "STATUS_OK", "target": null}]
+}
+```
+
+```bash
+pyagenthound test ./tests   # runs every *.json in the directory, exits non-zero on FAIL
+```
+
 ## What's not here yet
 
-No web UI, no evaluation — see `../ROADMAP_HONEST.md` for exactly what's built vs.
-planned.
+No web UI — see `../ROADMAP_HONEST.md` for exactly what's built vs. planned.

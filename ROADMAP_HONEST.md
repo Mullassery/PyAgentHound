@@ -1,6 +1,6 @@
 # PyAgentHound — Honest Status
 
-**Current Version:** unreleased, Phase 6 (pre-0.1.0)
+**Current Version:** unreleased, Phase 7 (pre-0.1.0)
 **Last Updated:** 2026-09-27
 
 This file exists to say plainly what's built-and-verified, what's not built yet, and
@@ -29,7 +29,8 @@ actually verified this" companion, so roadmap planning starts from reality.
 - **CLI** — `pyagenthound init`, `pyagenthound serve`, `pyagenthound inspect <id>`,
   `pyagenthound analyze <id>` (prints findings, baseline comparison when available,
   and ranked root-cause hypotheses), `pyagenthound replay <id> --set NAME.KEY=VALUE
-  [--allow-unsafe]`.
+  [--allow-unsafe]`, `pyagenthound test <tests_dir>` (exits non-zero on failure, for
+  CI).
 - **Execution graph** — `pyagenthound/graph/`: `Node`/`Edge`/`ExecutionGraph` domain
   model with query methods (`nodes_by_type`, `edges_by_relationship`,
   `nodes_in_window`, `outgoing`/`incoming`/`neighbors`, `ancestors`); `build_graph()`
@@ -76,6 +77,17 @@ actually verified this" companion, so roadmap planning starts from reality.
   stale-document scenario: overriding `retrieval.documents` to just the current
   policy resolved `stale_retrieval_documents` (1 finding → 0), via both
   `pyagenthound replay` and `POST .../replay`.
+- **Evaluation** — `pyagenthound/evaluation/`: `TestCase`/`Assertion`/
+  `AssertionResult`/`TestCaseResult` domain model, `evaluate()` (5 assertion types:
+  `STATUS_OK`, `OUTPUT_CONTAINS`, `NO_FINDING` — checked against the real rule
+  engine's output, not stubbed — `SPAN_EXISTS`, `NO_TOOL_CALLED`), JSON file I/O
+  (`save_test_case`/`load_test_case`/`load_test_cases`). `pyagenthound test
+  <tests_dir>` runs every `*.json` test case against the database, PASS/FAIL per
+  case, non-zero exit on any failure. No API endpoint by design — test cases are
+  file-based, meant for version control and CI, not a served resource. Verified end
+  to end: a passing test case against a real trace, then pointed at a real
+  regressed trace — correctly flips to FAIL with the specific broken assertion and
+  a non-zero exit code.
 
 Re-verify this list's "🟢" claims by actually running `pytest -q` — a memory of "it
 passed once" is not the same as it passing now.
@@ -96,7 +108,10 @@ a stable shape, but zero implementation exists:
 - LLM-powered (optional) analysis layer.
 - Replaying by actually re-invoking a live model/tool/retriever — today's replay
   only edits recorded attributes and re-analyzes; it never calls anything.
-- Regression test suite / `pyagenthound test` CLI command.
+- A `pyagenthound test create` scaffolding command (hand-authoring the JSON is the
+  current, reasonable MVP path).
+- Running the same test case against multiple models/prompts side by side (product
+  spec section 15) — requires live re-invocation, same gap as replay.
 - Full data/context lineage beyond the single `RETRIEVAL` → `DOCUMENT` extractor.
 
 ## 🔴 Explicitly out of scope for now

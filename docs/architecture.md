@@ -30,7 +30,7 @@ Four kinds of statements the system can make, never conflated:
   evidence-referenced, never presented as fact.
 - **Recommendations** — remediation hints attached to a finding/category.
 
-## 2. MVP boundary (Phase 1-6)
+## 2. MVP boundary (Phase 1-7)
 
 Phase 1 delivered the substrate everything else builds on: capture a trace, store it,
 retrieve it, look at it. Phase 2 added the execution graph — spans plus their
@@ -43,11 +43,13 @@ trace against the most recent prior successful execution of the same named workf
 which completes the confidence model's remaining two components
 (`temporal_correlation`, `historical_frequency`) for findings where comparable
 history exists. Phase 6 added replay — clone a trace, override span attributes,
-re-run the finding engine, and see whether the anomaly clears (section 13). Still no
-web UI, no eval. Concretely, Phase 1-6 = SDK + tracing model + SQLite storage +
-execution graph + rule engine (5 built-in rules) + root-cause ranking + historical
-baseline comparison + replay + a 7-endpoint API + a 5-command CLI. See
-`ROADMAP_HONEST.md` for the authoritative built-vs-not list.
+re-run the finding engine, and see whether the anomaly clears (section 13). Phase 7
+added evaluation — declarative assertions about a trace, run as a CI-gateable test
+suite (section 14). Still no web UI. Concretely, Phase 1-7 = SDK + tracing model +
+SQLite storage + execution graph + rule engine (5 built-in rules) + root-cause
+ranking + historical baseline comparison + replay + file-based evaluation + a
+7-endpoint API + a 6-command CLI. See `ROADMAP_HONEST.md` for the authoritative
+built-vs-not list.
 
 ## 3. Domain models (Phase 1)
 
@@ -352,15 +354,17 @@ documented future capability, not built.
   root-cause ranking (causal proximity at varying graph depths, `likely_cause` vs
   `contributing_factor` labeling, the weighted confidence combiner with 2 vs 4
   components present), baseline signature extraction/comparison (each change type)
-  and historical rule frequency computation.
+  and historical rule frequency computation, replay (safety classification defaults,
+  plan confirmation logic, clone-with-overrides id remapping, a real
+  finding-resolves-after-override case), each of the 5 assertion types plus JSON
+  save/load round-trips.
 - **Integration** — `tests/integration/`: FastAPI `TestClient` against a temp SQLite
-  db (full ingest → list → get → graph → analyze → root-cause flow, plus a two-trace
-  baseline scenario verifying `temporal_correlation` gets set), CLI commands
-  (`init`, `inspect`, `analyze` with and without a baseline) against a fixture db.
-  and root-cause ranking, plus a two-trace baseline scenario verifying
-  `temporal_correlation`), CLI commands (`init`, `inspect`, `analyze` with and
-  without a baseline, `replay` with and without an unsafe override) against a
-  fixture db.
+  db (full ingest → list → get → graph → analyze → root-cause → replay flow, plus a
+  two-trace baseline scenario verifying `temporal_correlation` gets set, and a `409`
+  on an unconfirmed unsafe replay override), CLI commands (`init`, `inspect`,
+  `analyze` with and without a baseline, `replay` with and without an unsafe
+  override, `test` against passing/failing/missing-trace/empty-directory cases)
+  against a fixture db.
 - No test depends on a real external LLM API — there are none in Phase 1's scope, and
   this constraint carries forward as later phases add LLM-powered analysis.
 
@@ -427,3 +431,74 @@ extension, not a limitation of the safety model itself), replaying against a
 different model/prompt *by calling it* (only by overriding the recorded attribute,
 which changes what the finding engine sees but not what any downstream system
 receives).
+
+## 14. Evaluation / regression testing (Phase 7 — built)
+
+A test case is a declarative set of assertions about an already-captured trace, not
+a way to re-invoke the agent under different conditions (see section 13 for why
+PyAgentHound can't do that honestly). The intended loop: capture a trace, run
+`pyagenthound analyze` to see what's true about it, hand-author a small JSON file
+asserting the properties that should hold, commit it, and run `pyagenthound test
+./tests` in CI on every change (`pyagenthound test` exits non-zero if any assertion
+fails, for CI gating — product spec section 15).
+
+`pyagenthound/evaluation/`:
+
+```python
+class AssertionType(str, Enum):
+    STATUS_OK = "STATUS_OK"
+    OUTPUT_CONTAINS = "OUTPUT_CONTAINS"
+    NO_FINDING = "NO_FINDING"
+    SPAN_EXISTS = "SPAN_EXISTS"
+    NO_TOOL_CALLED = "NO_TOOL_CALLED"
+
+class Assertion(BaseModel):
+    type: AssertionType
+    target: str | None = None   # substring / rule_id-or-category / span name / tool name
+
+class TestCase(BaseModel):
+    name: str
+    trace_id: str
+    assertions: list[Assertion]
+```
+
+Example test case file (hand-authored, this is the real JSON shape — not a schema
+sketch):
+
+```json
+{
+  "name": "cancellation_policy_mentions_window",
+  "trace_id": "cf8f6b96514d4e1e89c946e7140b2d5b",
+  "assertions": [
+    {"type": "STATUS_OK", "target": null},
+    {"type": "OUTPUT_CONTAINS", "target": "cancel"},
+    {"type": "NO_FINDING", "target": "stale_retrieval_documents"},
+    {"type": "NO_TOOL_CALLED", "target": "charge_card"}
+  ]
+}
+```
+
+`evaluate(trace, findings, test_case) -> TestCaseResult` checks each assertion —
+`NO_FINDING` runs the real rule engine's output against a `rule_id` or
+`FailureCategory` value, not a stubbed check. Test cases are stored as JSON files on
+disk (`pyagenthound/evaluation/io.py`: `save_test_case`/`load_test_case`/
+`load_test_cases`), not in the trace database — they're meant to be committed to
+version control like any other test fixture, which is also why there is **no API
+endpoint** for evaluation (a deliberate scope decision, section 10): `GET
+/api/evaluations` from the product spec's full surface (section 19) would need
+either server-side test-case storage or a way to point the server at a filesystem
+path, neither of which is worth the complexity for a CLI/CI-shaped feature.
+
+`pyagenthound test <tests_dir> [--db]` loads every `*.json` in `tests_dir`, looks up
+each referenced `trace_id` in the database, runs the rule engine, evaluates
+assertions, prints PASS/FAIL per test case with the specific failing assertions, and
+exits `1` if anything failed or a referenced trace is missing. Verified end to end:
+a passing test case against a real trace, then pointed at a real regressed trace
+(stale documents reintroduced) — correctly flips to FAIL with the exact assertion
+that broke (`NO_FINDING('stale_retrieval_documents')`) and a non-zero exit code.
+
+Not built: a `pyagenthound test create` scaffolding command (hand-authoring the
+small JSON is a reasonable MVP burden — this is documented future work, not a
+missing essential), running the same test case against multiple models/prompts
+side by side (product spec section 15's "run against model A / model B" — requires
+live re-invocation, same gap as replay), assertion types beyond the 5 above.

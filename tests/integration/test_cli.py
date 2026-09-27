@@ -1,6 +1,8 @@
 from click.testing import CliRunner
 
 from pyagenthound.cli.main import cli
+from pyagenthound.evaluation.io import save_test_case
+from pyagenthound.evaluation.models import Assertion, AssertionType, TestCase
 from pyagenthound.sdk.models import Span, SpanStatus, SpanType, Trace
 from pyagenthound.storage.sqlite_store import SQLiteTraceStore
 
@@ -176,3 +178,79 @@ def test_replay_missing_trace_errors(tmp_path):
     result = CliRunner().invoke(cli, ["replay", "nonexistent", "--db", str(db_path)])
 
     assert result.exit_code != 0
+
+
+def test_test_command_passes(tmp_path):
+    db_path = tmp_path / "t.db"
+    store = SQLiteTraceStore(db_path)
+    trace = Trace(name="checkout", status=SpanStatus.OK)
+    store.save_trace(trace)
+
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    save_test_case(
+        TestCase(
+            name="checkout succeeds",
+            trace_id=trace.trace_id,
+            assertions=[Assertion(type=AssertionType.STATUS_OK)],
+        ),
+        tests_dir / "checkout.json",
+    )
+
+    result = CliRunner().invoke(cli, ["test", str(tests_dir), "--db", str(db_path)])
+
+    assert result.exit_code == 0
+    assert "PASS" in result.output
+    assert "all passed" in result.output
+
+
+def test_test_command_fails_on_failed_assertion(tmp_path):
+    db_path = tmp_path / "t.db"
+    store = SQLiteTraceStore(db_path)
+    trace = Trace(name="checkout", status=SpanStatus.ERROR)
+    store.save_trace(trace)
+
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    save_test_case(
+        TestCase(
+            name="checkout succeeds",
+            trace_id=trace.trace_id,
+            assertions=[Assertion(type=AssertionType.STATUS_OK)],
+        ),
+        tests_dir / "checkout.json",
+    )
+
+    result = CliRunner().invoke(cli, ["test", str(tests_dir), "--db", str(db_path)])
+
+    assert result.exit_code != 0
+    assert "FAIL" in result.output
+
+
+def test_test_command_errors_on_missing_trace(tmp_path):
+    db_path = tmp_path / "t.db"
+    SQLiteTraceStore(db_path)
+
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    save_test_case(
+        TestCase(name="ghost", trace_id="nonexistent", assertions=[]),
+        tests_dir / "ghost.json",
+    )
+
+    result = CliRunner().invoke(cli, ["test", str(tests_dir), "--db", str(db_path)])
+
+    assert result.exit_code != 0
+    assert "ERROR" in result.output
+
+
+def test_test_command_no_test_cases(tmp_path):
+    db_path = tmp_path / "t.db"
+    SQLiteTraceStore(db_path)
+    tests_dir = tmp_path / "empty"
+    tests_dir.mkdir()
+
+    result = CliRunner().invoke(cli, ["test", str(tests_dir), "--db", str(db_path)])
+
+    assert result.exit_code == 0
+    assert "No test cases found" in result.output

@@ -2,12 +2,12 @@
 
 **Evidence-based debugging and root-cause analysis for AI agents and LLM applications.**
 
-> **Status: Phase 1-6 MVP.** Trace capture, storage, inspection, a queryable execution
+> **Status: Phase 1-7 MVP.** Trace capture, storage, inspection, a queryable execution
 > graph, a deterministic rule engine (5 built-in rules), root-cause ranking,
-> historical baseline comparison, and safe replay work end to end and are tested.
-> LLM-powered analysis, web UI, and evaluation described below in "Where this is
-> going" are **not built yet** — see [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for the
-> exact built-vs-not line.
+> historical baseline comparison, safe replay, and file-based evaluation/regression
+> testing work end to end and are tested. LLM-powered analysis and a web UI described
+> below in "Where this is going" are **not built yet** — see
+> [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for the exact built-vs-not line.
 
 ## The problem
 
@@ -135,7 +135,45 @@ Error: Replay would override non-READ_ONLY span(s) ['charge_card'] — pass
 allow_unsafe=True to confirm. (pass --allow-unsafe to confirm)
 ```
 
-## What works today (Phase 1-6)
+### Evaluation / regression testing
+
+A test case is a small, hand-authored JSON file asserting properties that should
+hold for an already-captured trace — meant to be committed and run in CI:
+
+```json
+{
+  "name": "cancellation_policy_mentions_window",
+  "trace_id": "cf8f6b96514d4e1e89c946e7140b2d5b",
+  "assertions": [
+    {"type": "STATUS_OK", "target": null},
+    {"type": "OUTPUT_CONTAINS", "target": "cancel"},
+    {"type": "NO_FINDING", "target": "stale_retrieval_documents"},
+    {"type": "NO_TOOL_CALLED", "target": "charge_card"}
+  ]
+}
+```
+
+```
+$ pyagenthound test ./tests
+PASS  cancellation_policy_mentions_window
+
+all passed
+```
+
+Real output — and pointing that same test case at a genuinely regressed trace (the
+stale documents came back) correctly flips it, with the specific broken assertion
+named and a non-zero exit code for CI:
+
+```
+$ pyagenthound test ./tests
+FAIL  cancellation_policy_mentions_window
+  x NO_FINDING('stale_retrieval_documents'): 1 finding(s) matched
+  'stale_retrieval_documents'
+
+some failed
+```
+
+## What works today (Phase 1-7)
 
 - A Python SDK (`pyagenthound`) with an OpenTelemetry-compatible tracing model:
   traces, spans (with AI-specific `SpanType`s — `LLM`, `RETRIEVAL`, `TOOL`, `MCP`,
@@ -162,7 +200,11 @@ allow_unsafe=True to confirm. (pass --allow-unsafe to confirm)
   override span attributes, and see whether a finding clears. Never re-invokes a
   live model/tool; a `READ_ONLY`/`WRITE`/`DESTRUCTIVE`/`UNKNOWN` safety
   classification refuses to override a non-`READ_ONLY` span without `--allow-unsafe`.
-- A CLI to inspect, analyze, and replay what was captured.
+- Evaluation / regression testing (`pyagenthound test <tests_dir>`) — file-based
+  JSON test cases asserting properties of a captured trace (status, output content,
+  absence of a finding, spans present, tools not called), CI-gateable via a
+  non-zero exit on failure.
+- A CLI to inspect, analyze, replay, and test what was captured.
 
 ## Quickstart
 
@@ -207,10 +249,13 @@ rule engine (built — 5 rules; LLM-powered analysis is optional and additive, n
 required), root-cause ranking with an explicit, fully-implemented confidence model
 (built), historical baseline comparison (built), safe replay with a
 read/write/destructive safety classification (built), and a regression test suite
-you can run in CI. See [`docs/architecture.md`](docs/architecture.md) for the full
-design and [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for what's actually shipped vs.
-planned at
-any point in time.
+you can run in CI (built). See [`docs/architecture.md`](docs/architecture.md) for
+the full design and [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for what's actually
+shipped vs. planned at any point in time.
+
+Still missing: a web UI (everything above is CLI/API-only today) and any
+LLM-powered analysis layer (deterministic rules stay the default and requirement;
+LLM analysis would only ever be additive, per the design principles below).
 
 ## Design principles
 
