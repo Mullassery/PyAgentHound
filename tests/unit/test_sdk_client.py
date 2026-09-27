@@ -52,6 +52,26 @@ def test_span_records_error(tmp_path):
     assert trace.trace.status == SpanStatus.ERROR
 
 
+def test_trace_status_reflects_a_span_error_even_when_the_caller_catches_it(tmp_path):
+    # Regression test found via real-world benchmarking: a caller that
+    # catches a tool/LLM exception itself (a normal, common pattern for
+    # retry/graceful-degradation) never lets it reach TraceContext.__exit__,
+    # so the trace's own status used to stay OK even though one of its
+    # spans genuinely errored -- silently invisible to any status-based
+    # trace filtering.
+    hound = AgentHound(db_path=tmp_path / "t.db")
+
+    with hound.trace("t") as trace:
+        try:
+            with trace.span("boom"):
+                raise ValueError("bad")
+        except ValueError:
+            pass  # caller handles it and continues -- trace itself doesn't crash
+
+    assert trace.trace.spans[0].status == SpanStatus.ERROR
+    assert trace.trace.status == SpanStatus.ERROR
+
+
 def test_trace_and_span_decorators(tmp_path):
     db_path = tmp_path / "t.db"
     hound = AgentHound(db_path=db_path)

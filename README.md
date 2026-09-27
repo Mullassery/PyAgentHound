@@ -236,6 +236,60 @@ pyagenthound replay <trace_id> --set 'retrieval.documents=[]'   # try a fix
 
 Full walkthrough, including the API server, in [`docs/quickstart.md`](docs/quickstart.md).
 
+## vs Langfuse
+
+Langfuse is the leading OSS LLM/agent observability platform and the
+closest real comparison. **Methodology, stated plainly:** PyAgentHound was
+live-tested end to end against a real agent making real calls to a local
+Ollama model (`qwen2.5:7b-instruct`, zero cloud cost) with two real
+failure scenarios built deliberately, not synthetic placeholders. Standing
+up Langfuse's own multi-service stack (Postgres + ClickHouse + Redis +
+web/worker containers) was judged too heavyweight for this pass, so the
+Langfuse side of this comparison is feature-level, from its own public
+docs — clearly marked below, not blended with the live-tested numbers.
+
+**Scenario 1 (live-tested):** a tool returns technically-valid-but-incomplete
+data (a real order lookup missing its `status` field); the downstream LLM
+correctly says it doesn't have enough information rather than hallucinating.
+No exception anywhere — `pyagenthound analyze` correctly reports **0
+findings**, which is honest, not a miss: none of its rules claim to detect
+"technically valid but semantically incomplete" tool output, and it says so
+plainly rather than fabricating a finding.
+
+**Scenario 2 (live-tested):** a tool genuinely crashes (a real
+`json.JSONDecodeError` from malformed upstream data). `pyagenthound analyze`
+correctly surfaced it:
+
+```
+HIGH  Tool call failed: tool.fetch_inventory
+  Expecting value: line 1 column 32 (char 31)
+  confidence: 1.00  (evidence_strength=1.00, causal_proximity=1.00, historical_frequency=1.00)
+```
+
+| | PyAgentHound (live-tested) | Langfuse (from public docs) |
+|---|---|---|
+| Deployment | Local-only, `pip install`, SQLite | Self-hosted (Postgres+ClickHouse+Redis+web/worker) or managed cloud |
+| Tracing | Real spans, real attributes, real errors — verified above | Real, mature, widely-adopted OTel-based tracing |
+| Root-cause ranking | Real deterministic rules + a decomposed confidence model (evidence/proximity/frequency) — verified finding a genuine crash | Not its focus — Langfuse surfaces traces/metrics/evals for a human (or your own downstream logic) to interpret; it doesn't ship an automated root-cause ranking engine |
+| Counterfactual replay (`replay --set ...`) | Real — override a captured attribute and re-run to test a fix | Not a Langfuse feature |
+| UI | CLI/API only as of this pass (a web UI is in progress, untracked in this repo as of this benchmark) | Mature, full-featured web UI |
+| Scale/maturity | Early-stage, single-machine | Production-proven at real scale, large user base |
+
+**Bug found and fixed while running this benchmark:** a span's error status
+never propagated to its parent trace's status when the caller caught the
+exception itself (a normal pattern — retry/graceful-degradation code, not
+an edge case). `trace.status` stayed `OK` even when `analyze` correctly
+found a real `HIGH` tool failure inside it, which would silently break any
+status-based trace filtering ("show me failed traces"). Fixed in
+`pyagenthound/sdk/client.py`'s `SpanContext.record_error`; regression test
+added (`tests/unit/test_sdk_client.py`); 109/109 tests pass.
+
+**Bottom line:** Langfuse is the mature, production-proven choice for
+tracing infrastructure and scale. PyAgentHound's real differentiator,
+verified live here, is going a step further than tracing — a working,
+non-trivial root-cause ranking engine and counterfactual replay — but it's
+early-stage, CLI-only, and single-machine as of this pass.
+
 ## Where this is going
 
 The core pipeline this project is building toward:

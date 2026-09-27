@@ -64,6 +64,17 @@ class SpanContext:
             message=str(exc),
             stacktrace="".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
         )
+        # A caller that catches the tool/LLM exception itself (e.g. to retry
+        # or degrade gracefully -- a normal, common pattern) never lets it
+        # reach TraceContext.__exit__, so without this the trace's own
+        # status stayed OK even though one of its spans genuinely errored.
+        # That meant any status-based trace filtering ("show me ERROR
+        # traces") silently missed real failures the moment the caller
+        # handled the exception instead of letting it crash the whole
+        # trace -- found via real-world benchmarking with an agent that
+        # caught a tool's JSONDecodeError and continued.
+        if self._trace_ctx.trace is not None:
+            self._trace_ctx.trace.status = SpanStatus.ERROR
 
     def __enter__(self) -> SpanContext:
         self._token = _current_span.set(self)
