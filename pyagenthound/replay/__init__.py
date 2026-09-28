@@ -1,4 +1,11 @@
-from pyagenthound.replay.engine import UnsafeReplayError, apply_overrides, build_plan, run_replay
+from pyagenthound.replay.engine import (
+    UnsafeReplayError,
+    apply_overrides,
+    build_plan,
+    overrides_by_span_id,
+    parse_override,
+    run_replay,
+)
 from pyagenthound.replay.models import (
     ReplayPlan,
     ReplayRequest,
@@ -12,6 +19,8 @@ __all__ = [
     "UnsafeReplayError",
     "apply_overrides",
     "build_plan",
+    "overrides_by_span_id",
+    "parse_override",
     "run_replay",
     "ReplayPlan",
     "ReplayRequest",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -15,6 +16,30 @@ from pyagenthound.storage.base import TraceStore
 
 class UnsafeReplayError(RuntimeError):
     """Raised when a replay would override a non-READ_ONLY span without confirmation."""
+
+
+def parse_override(raw: str) -> tuple[str, str, Any]:
+    """Parse `NAME.KEY=VALUE` (CLI and web UI both use this syntax). VALUE is parsed
+    as JSON if possible, else kept as a plain string."""
+    name_and_key, _, value_raw = raw.partition("=")
+    name, _, key = name_and_key.partition(".")
+    try:
+        value: Any = json.loads(value_raw)
+    except json.JSONDecodeError:
+        value = value_raw
+    return name, key, value
+
+
+def overrides_by_span_id(
+    trace: Trace, overrides_by_name: dict[str, dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    """Resolve span-name-keyed overrides to span-id-keyed overrides (what
+    `run_replay` actually takes) — applied to every span sharing that name."""
+    return {
+        span.span_id: overrides_by_name[span.name]
+        for span in trace.spans
+        if span.name in overrides_by_name
+    }
 
 
 def build_plan(trace: Trace, overrides: dict[str, dict[str, Any]]) -> ReplayPlan:

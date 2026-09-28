@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Requests — PyAgentHound{% endblock %}
+{% block content %}
+  <h1>Requests</h1>
+
+  <form class="filters" method="get" action="/">
+    <input type="text" name="name" placeholder="filter by name" value="{{ name_filter or '' }}">
+    <select name="status">
+      <option value="">any status</option>
+      {% for s in ["OK", "ERROR", "UNSET"] %}
+        <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Filter</button>
+  </form>
+
+  {% if not traces %}
+    <p class="muted">No traces captured yet. Instrument your app with the SDK, or run
+    <code>python examples/minimal_trace.py</code>.</p>
+  {% else %}
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Status</th><th>Started</th><th>Spans</th></tr>
+      </thead>
+      <tbody>
+        {% for trace in traces %}
+        <tr>
+          <td><a href="/requests/{{ trace.trace_id }}">{{ trace.name }}</a>
+            <div class="muted">{{ trace.trace_id }}</div>
+          </td>
+          <td><span class="badge {{ trace.status.value }}">{{ trace.status.value }}</span></td>
+          <td>{{ trace.start_time.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+          <td>{{ trace.span_count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endblock %}

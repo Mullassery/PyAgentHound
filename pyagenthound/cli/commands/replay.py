@@ -1,21 +1,18 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import click
 from rich.console import Console
 
 from pyagenthound.config import DEFAULT_DB_PATH
-from pyagenthound.replay.engine import UnsafeReplayError, run_replay
+from pyagenthound.replay.engine import (
+    UnsafeReplayError,
+    overrides_by_span_id,
+    parse_override,
+    run_replay,
+)
 from pyagenthound.storage.sqlite_store import SQLiteTraceStore
-
-
-def _parse_value(raw: str) -> Any:
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return raw
 
 
 @click.command("replay")
@@ -52,20 +49,15 @@ def replay_command(
 
     overrides_by_name: dict[str, dict[str, Any]] = {}
     for raw in overrides_raw:
-        name_and_key, _, value_raw = raw.partition("=")
-        name, _, key = name_and_key.partition(".")
+        name, key, value = parse_override(raw)
         if not name or not key:
             raise click.ClickException(f"--set value must look like NAME.KEY=VALUE, got {raw!r}")
-        overrides_by_name.setdefault(name, {})[key] = _parse_value(value_raw)
-
-    overrides_by_span_id = {
-        span.span_id: overrides_by_name[span.name]
-        for span in trace.spans
-        if span.name in overrides_by_name
-    }
+        overrides_by_name.setdefault(name, {})[key] = value
 
     try:
-        result = run_replay(store, trace, overrides_by_span_id, allow_unsafe=allow_unsafe)
+        result = run_replay(
+            store, trace, overrides_by_span_id(trace, overrides_by_name), allow_unsafe=allow_unsafe
+        )
     except UnsafeReplayError as exc:
         raise click.ClickException(f"{exc} (pass --allow-unsafe to confirm)") from exc
 

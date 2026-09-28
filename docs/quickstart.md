@@ -65,6 +65,19 @@ assertion list) referencing a trace already in the database:
 pyagenthound test ./tests   # runs every *.json in the directory, exits non-zero on FAIL
 ```
 
+## Web UI
+
+```bash
+pyagenthound serve
+```
+
+Open `http://localhost:8787` — a requests list, and a request-detail page with an
+interactive execution graph (click a node for its attributes), findings, root-cause
+hypotheses, and a replay form (same `NAME.KEY=VALUE` syntax as `--set` above, plus
+an "allow unsafe" checkbox). Server-rendered, no separate frontend build step — see
+`../docs/architecture.md` section 15.
+
 ## What's not here yet
 
-No web UI — see `../ROADMAP_HONEST.md` for exactly what's built vs. planned.
+No LLM-powered analysis layer — see `../ROADMAP_HONEST.md` for exactly what's built
+vs. planned.

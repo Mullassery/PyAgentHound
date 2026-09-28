@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Phase 8: web UI (`pyagenthound/ui/`) — server-rendered (FastAPI + Jinja2, no
+  npm/build step). `GET /` (requests list, `name`/`status` filters),
+  `GET /requests/{id}` (consolidated detail: metadata, interactive execution graph,
+  timeline, findings, root-cause hypotheses, replay form), `POST
+  /requests/{id}/replay` (redirects to the replayed trace on success, or back with
+  `?replay_error=` on an unconfirmed unsafe override). The graph is vanilla JS
+  fetching the existing `GET /api/traces/{id}/graph` JSON — no graphing library.
+  7 integration tests plus a real browser walkthrough verifying the full
+  fix-and-replay loop end to end.
 - Phase 7: evaluation / regression testing (`pyagenthound/evaluation/`) —
   `TestCase`/`Assertion`/`AssertionResult`/`TestCaseResult` domain model, `evaluate()`
   with 5 assertion types (`STATUS_OK`, `OUTPUT_CONTAINS`, `NO_FINDING` — checked

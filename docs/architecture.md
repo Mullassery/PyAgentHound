@@ -30,7 +30,7 @@ Four kinds of statements the system can make, never conflated:
   evidence-referenced, never presented as fact.
 - **Recommendations** — remediation hints attached to a finding/category.
 
-## 2. MVP boundary (Phase 1-7)
+## 2. MVP boundary (Phase 1-8)
 
 Phase 1 delivered the substrate everything else builds on: capture a trace, store it,
 retrieve it, look at it. Phase 2 added the execution graph — spans plus their
@@ -45,11 +45,13 @@ which completes the confidence model's remaining two components
 history exists. Phase 6 added replay — clone a trace, override span attributes,
 re-run the finding engine, and see whether the anomaly clears (section 13). Phase 7
 added evaluation — declarative assertions about a trace, run as a CI-gateable test
-suite (section 14). Still no web UI. Concretely, Phase 1-7 = SDK + tracing model +
-SQLite storage + execution graph + rule engine (5 built-in rules) + root-cause
-ranking + historical baseline comparison + replay + file-based evaluation + a
-7-endpoint API + a 6-command CLI. See `ROADMAP_HONEST.md` for the authoritative
-built-vs-not list.
+suite (section 14). Phase 8 added a server-rendered web UI (section 15) exposing all
+of the above visually — requests list, request detail with an interactive execution
+graph, findings, root-cause hypotheses, and a replay form. Concretely, Phase 1-8 =
+SDK + tracing model + SQLite storage + execution graph + rule engine (5 built-in
+rules) + root-cause ranking + historical baseline comparison + replay + file-based
+evaluation + a web UI + a 7-endpoint API + a 6-command CLI. See
+`ROADMAP_HONEST.md` for the authoritative built-vs-not list.
 
 ## 3. Domain models (Phase 1)
 
@@ -364,7 +366,12 @@ documented future capability, not built.
   on an unconfirmed unsafe replay override), CLI commands (`init`, `inspect`,
   `analyze` with and without a baseline, `replay` with and without an unsafe
   override, `test` against passing/failing/missing-trace/empty-directory cases)
-  against a fixture db.
+  against a fixture db, and the web UI (`test_ui.py`: requests list empty/populated/
+  filtered states, request-detail rendering asserted against real finding/root-cause
+  text, the graph script tag's `data-trace-id`, and the replay form's POST → 303
+  redirect — both the success path to the new replayed trace and the `?replay_error=`
+  path for an unconfirmed unsafe override). The full UI was also driven in a real
+  browser (not just `TestClient`) — see section 15 for what that verified.
 - No test depends on a real external LLM API — there are none in Phase 1's scope, and
   this constraint carries forward as later phases add LLM-powered analysis.
 
@@ -502,3 +509,57 @@ small JSON is a reasonable MVP burden — this is documented future work, not a
 missing essential), running the same test case against multiple models/prompts
 side by side (product spec section 15's "run against model A / model B" — requires
 live re-invocation, same gap as replay), assertion types beyond the 5 above.
+
+## 15. Web UI (Phase 8 — built)
+
+Server-rendered (FastAPI + Jinja2), not a JS single-page app — no npm/build step,
+consistent with "Python is the primary developer API" (README design principles;
+also avoids "unnecessary infrastructure," product spec section 15/37). The one place
+vanilla JS is used at all is the execution graph, and even that is a thin client of
+the existing `GET /api/traces/{id}/graph` JSON endpoint (section 10) — the UI never
+re-implements graph construction, it fetches the same data the API already serves
+and lays it out client-side.
+
+`pyagenthound/ui/`:
+- `routes.py` — `GET /` (requests list, `name`/`status` query-param filters),
+  `GET /requests/{id}` (the consolidated request-detail view), `POST
+  /requests/{id}/replay` (a single `NAME.KEY=VALUE` text field + an "allow unsafe"
+  checkbox, calling the same `run_replay` the CLI/API use, redirecting to the
+  replayed trace's own detail page on success or back with `?replay_error=` on an
+  `UnsafeReplayError`).
+- `templates/` — `base.html`, `requests_list.html`, `request_detail.html`. Pydantic
+  model instances (`Trace`, `Finding`, `RootCauseHypothesis`, `ExecutionSignature`)
+  are passed straight into the Jinja context and accessed via normal attribute
+  syntax (`trace.status.value`, `finding.severity.value`) — no extra serialization
+  layer.
+- `static/style.css` — a small hand-written stylesheet, dark-mode aware via
+  `prefers-color-scheme`, no CSS framework.
+- `static/graph.js` — fetches the graph JSON, computes a simple BFS-from-root level
+  layout (nodes grouped into rows by hop-distance from the `TRACE` root, positioned
+  evenly within their row), renders boxes + curved edges as SVG, and shows a node's
+  full attributes on click. No charting/graph library — the graphs here are small
+  (one trace's worth of spans) and don't need a force-directed layout engine.
+
+**Deliberate scope cut from the product spec's nav (section 17):** one consolidated
+request-detail page instead of separate "Findings," "Graph," "Evaluations," and
+"Replays" top-level pages. The spec's own Request-page description already lists
+metadata/findings/graph/timeline/root-cause/replay together under one view; splitting
+them into separate top-level nav items would fragment a single request's story
+across five pages for no benefit at this scale. No "Overview" dashboard and no
+"Settings" page either — both would be hollow placeholders today (no cross-request
+aggregate stats worth showing yet, no configurable settings to expose), and building
+an empty page to satisfy a nav list would be exactly the kind of stub the no-fake-
+stubs policy rules out.
+
+Verified in a real browser (not just `TestClient`): requests list renders with dark
+mode, execution graph is genuinely interactive (click any node — including a
+`DOCUMENT` leaf — and its real attributes show up in the detail panel), and the full
+replay loop works end to end — submitting `retrieval.documents=[{"id":
+"policy-2026", ...}]` through the form redirects to a new request page tagged
+"Replayed from `<original>`" whose Findings count visibly drops (4 → 3) with
+`stale_retrieval_documents` gone, exactly matching the CLI/API behavior from
+section 13.
+
+Not built: an `Overview` dashboard, a `Settings` page, authentication (the API
+server has none — section 11 — and neither does the UI), a JS-driven live-updating
+requests list (the list is a plain server-rendered page, reloaded on navigation).

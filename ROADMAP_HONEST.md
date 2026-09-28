@@ -1,7 +1,7 @@
 # PyAgentHound — Honest Status
 
-**Current Version:** unreleased, Phase 7 (pre-0.1.0)
-**Last Updated:** 2026-09-27
+**Current Version:** unreleased, Phase 8 (pre-0.1.0)
+**Last Updated:** 2026-09-28
 
 This file exists to say plainly what's built-and-verified, what's not built yet, and
 what's a known, documented limitation vs. a future feature. `README.md` and
@@ -88,6 +88,18 @@ actually verified this" companion, so roadmap planning starts from reality.
   to end: a passing test case against a real trace, then pointed at a real
   regressed trace — correctly flips to FAIL with the specific broken assertion and
   a non-zero exit code.
+- **Web UI** — `pyagenthound/ui/`: server-rendered (FastAPI + Jinja2, no npm/build
+  step). `GET /` (requests list, `name`/`status` filters), `GET /requests/{id}`
+  (consolidated detail: metadata, interactive execution graph, timeline, findings,
+  root-cause hypotheses, replay form), `POST /requests/{id}/replay` (redirects to
+  the replayed trace on success, back with `?replay_error=` on an unconfirmed
+  unsafe override). The graph is vanilla JS (`static/graph.js`) fetching the
+  existing `GET /api/traces/{id}/graph` JSON — no graphing library. 7 integration
+  tests (`test_ui.py`) plus a real browser walkthrough (not just `TestClient`):
+  requests list renders in dark mode, the graph is genuinely clickable (a
+  `DOCUMENT` leaf node's real attributes appear on click), and the full replay loop
+  works end to end — submitting a fix through the form redirects to a new page
+  whose findings count visibly drops with the fixed rule_id gone.
 
 Re-verify this list's "🟢" claims by actually running `pytest -q` — a memory of "it
 passed once" is not the same as it passing now.
@@ -116,7 +128,11 @@ a stable shape, but zero implementation exists:
 
 ## 🔴 Explicitly out of scope for now
 
-- Web UI (no `ui/` exists).
+- An `Overview` dashboard page and a `Settings` page in the web UI — both would be
+  hollow placeholders today (no cross-request aggregate stats worth showing, no
+  configurable settings to expose).
+- Authentication on the web UI (same as the API — `pyagenthound serve` is meant for
+  localhost).
 - OpenTelemetry SDK ingestion adapter — the domain model is OTel-*compatible* in
   shape, but nothing consumes real OTel traces yet.
 - MCP integration, LangChain/LangGraph framework adapters.

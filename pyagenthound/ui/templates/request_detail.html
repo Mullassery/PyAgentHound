@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}{{ trace.name }} — PyAgentHound{% endblock %}
+{% block content %}
+  <p><a href="/">&larr; Requests</a></p>
+
+  <h1>{{ trace.name }}</h1>
+  <p class="muted">{{ trace.trace_id }}</p>
+
+  {% if replayed_from %}
+    <div class="card">
+      Replayed from <a href="/requests/{{ replayed_from }}">{{ replayed_from }}</a> with
+      overridden attributes — not a live re-execution, see
+      <a href="https://github.com/Mullassery/PyAgentHound" target="_blank">docs</a>.
+    </div>
+  {% endif %}
+
+  <div class="card">
+    <span class="badge {{ trace.status.value }}">{{ trace.status.value }}</span>
+    {% if trace.duration_ms is not none %}
+      <span class="muted">{{ "%.1f"|format(trace.duration_ms) }}ms</span>
+    {% endif %}
+    {% if signature.model %}<span class="muted">model: {{ signature.model }}</span>{% endif %}
+    {% if signature.retriever %}<span class="muted">retriever: {{ signature.retriever }}</span>{% endif %}
+    {% if signature.total_tokens is not none %}
+      <span class="muted">{{ signature.total_tokens }} tokens</span>
+    {% endif %}
+    {% if trace.tags %}<span class="muted">tags: {{ trace.tags|join(", ") }}</span>{% endif %}
+    {% if baseline %}
+      <div class="muted">compared against baseline
+        <a href="/requests/{{ baseline.trace_id }}">{{ baseline.trace_id }}</a>
+      </div>
+    {% endif %}
+  </div>
+
+  <h2>Execution Graph</h2>
+  <div id="graph-wrap">
+    <svg id="graph" width="100%" height="320"></svg>
+    <div id="graph-detail" class="card muted">Click a node for its attributes.</div>
+  </div>
+
+  <h2>Timeline</h2>
+  <table>
+    <thead><tr><th>Span</th><th>Type</th><th>Status</th><th>Duration</th></tr></thead>
+    <tbody>
+      {% for span in trace.spans %}
+      <tr>
+        <td>{{ span.name }}</td>
+        <td>{{ span.span_type.value }}</td>
+        <td><span class="badge {{ span.status.value }}">{{ span.status.value }}</span></td>
+        <td>{% if span.duration_ms is not none %}{{ "%.1f"|format(span.duration_ms) }}ms{% else %}-{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Findings ({{ findings|length }})</h2>
+  {% if not findings %}
+    <p class="muted">No deterministic findings — not a claim the trace is correct.</p>
+  {% endif %}
+  {% for finding in findings %}
+    <div class="finding {{ finding.severity.value }}">
+      <span class="badge {{ finding.severity.value }}">{{ finding.severity.value }}</span>
+      <strong>{{ finding.title }}</strong>
+      <p>{{ finding.description }}</p>
+      {% for e in finding.evidence %}<p class="muted">evidence: {{ e.description }}</p>{% endfor %}
+      <p class="muted">confidence: {{ "%.2f"|format(finding.confidence) }}</p>
+      {% if finding.recommendation %}<p class="muted">recommendation: {{ finding.recommendation }}</p>{% endif %}
+    </div>
+  {% endfor %}
+
+  <h2>Root Cause Analysis</h2>
+  <p class="muted">Deterministic estimate, not verified truth.</p>
+  {% for h in hypotheses %}
+    <div class="finding {{ 'HIGH' if h.label == 'likely_cause' else 'LOW' }}">
+      <strong>{{ "Likely cause" if h.label == "likely_cause" else "Contributing factor" }}:</strong>
+      {{ h.statement }}
+      <p class="muted">
+        confidence: {{ "%.2f"|format(h.confidence) }}
+        (evidence_strength={{ "%.2f"|format(h.confidence_components.evidence_strength) }},
+        causal_proximity={{ "%.2f"|format(h.confidence_components.causal_proximity) }}
+        {%- if h.confidence_components.temporal_correlation is not none %},
+        temporal_correlation={{ "%.2f"|format(h.confidence_components.temporal_correlation) }}{% endif %}
+        {%- if h.confidence_components.historical_frequency is not none %},
+        historical_frequency={{ "%.2f"|format(h.confidence_components.historical_frequency) }}{% endif %})
+      </p>
+      {% if h.recommendation %}<p class="muted">recommendation: {{ h.recommendation }}</p>{% endif %}
+    </div>
+  {% endfor %}
+
+  <h2>Replay</h2>
+  <p class="muted">Clones this trace with an attribute override and re-analyzes it —
+    does not re-invoke any model or tool.</p>
+  <form class="replay-form" method="post" action="/requests/{{ trace.trace_id }}/replay">
+    <input type="text" name="override" placeholder="retrieval.documents=[]" required>
+    <label><input type="checkbox" name="allow_unsafe" value="1"> allow unsafe</label>
+    <button type="submit">Replay</button>
+  </form>
+  {% if replay_error %}<p class="muted">{{ replay_error }}</p>{% endif %}
+
+  <script src="/static/graph.js" data-trace-id="{{ trace.trace_id }}"></script>
+{% endblock %}

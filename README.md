@@ -2,11 +2,11 @@
 
 **Evidence-based debugging and root-cause analysis for AI agents and LLM applications.**
 
-> **Status: Phase 1-7 MVP.** Trace capture, storage, inspection, a queryable execution
+> **Status: Phase 1-8 MVP.** Trace capture, storage, inspection, a queryable execution
 > graph, a deterministic rule engine (5 built-in rules), root-cause ranking,
-> historical baseline comparison, safe replay, and file-based evaluation/regression
-> testing work end to end and are tested. LLM-powered analysis and a web UI described
-> below in "Where this is going" are **not built yet** — see
+> historical baseline comparison, safe replay, file-based evaluation/regression
+> testing, and a server-rendered web UI work end to end and are tested. LLM-powered
+> analysis described below in "Where this is going" is **not built yet** — see
 > [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for the exact built-vs-not line.
 
 ## The problem
@@ -173,7 +173,21 @@ FAIL  cancellation_policy_mentions_window
 some failed
 ```
 
-## What works today (Phase 1-7)
+### Web UI
+
+`pyagenthound serve` then open `http://localhost:8787`: a requests list (filterable
+by name/status), and a request-detail page consolidating everything above — status,
+model/tokens, an interactive execution graph you can click through (each node,
+including a retrieved-document leaf, shows its real attributes), the timeline,
+findings, root-cause hypotheses, and a replay form. Verified in a real browser, not
+just via `TestClient`: submitting `retrieval.documents=[{"id": "policy-2026", ...}]`
+through the replay form redirects to a new page tagged "Replayed from `<original>`"
+whose findings count visibly drops (4 → 3) with `stale_retrieval_documents` gone —
+the same fix-and-verify loop as the CLI, just clickable. Server-rendered (FastAPI +
+Jinja2), no npm/build step — the graph is the only vanilla-JS piece, and it's a thin
+client of the same `GET /api/traces/{id}/graph` JSON the API already serves.
+
+## What works today (Phase 1-8)
 
 - A Python SDK (`pyagenthound`) with an OpenTelemetry-compatible tracing model:
   traces, spans (with AI-specific `SpanType`s — `LLM`, `RETRIEVAL`, `TOOL`, `MCP`,
@@ -204,6 +218,10 @@ some failed
   JSON test cases asserting properties of a captured trace (status, output content,
   absence of a finding, spans present, tools not called), CI-gateable via a
   non-zero exit on failure.
+- A web UI (`pyagenthound serve`, then open `http://localhost:8787`) — requests
+  list, a request-detail page with an interactive execution graph (click any node
+  for its attributes), findings, root-cause hypotheses, and a replay form. Server-
+  rendered, no npm/build step.
 - A CLI to inspect, analyze, replay, and test what was captured.
 
 ## Quickstart
@@ -232,6 +250,7 @@ with hound.trace("customer-support-request") as trace:
 pyagenthound inspect <trace_id>
 pyagenthound analyze <trace_id>
 pyagenthound replay <trace_id> --set 'retrieval.documents=[]'   # try a fix
+pyagenthound serve   # then open http://localhost:8787 for the web UI
 ```
 
 Full walkthrough, including the API server, in [`docs/quickstart.md`](docs/quickstart.md).
@@ -272,7 +291,7 @@ HIGH  Tool call failed: tool.fetch_inventory
 | Tracing | Real spans, real attributes, real errors — verified above | Real, mature, widely-adopted OTel-based tracing |
 | Root-cause ranking | Real deterministic rules + a decomposed confidence model (evidence/proximity/frequency) — verified finding a genuine crash | Not its focus — Langfuse surfaces traces/metrics/evals for a human (or your own downstream logic) to interpret; it doesn't ship an automated root-cause ranking engine |
 | Counterfactual replay (`replay --set ...`) | Real — override a captured attribute and re-run to test a fix | Not a Langfuse feature |
-| UI | CLI/API only as of this pass (a web UI is in progress, untracked in this repo as of this benchmark) | Mature, full-featured web UI |
+| UI | A server-rendered web UI (requests list, request detail, interactive execution graph, replay form) — no npm/build step, verified in a real browser | Mature, full-featured web UI |
 | Scale/maturity | Early-stage, single-machine | Production-proven at real scale, large user base |
 
 **Bug found and fixed while running this benchmark:** a span's error status
@@ -302,14 +321,15 @@ Execution graph with typed relationships and data lineage (built), deterministic
 rule engine (built — 5 rules; LLM-powered analysis is optional and additive, never
 required), root-cause ranking with an explicit, fully-implemented confidence model
 (built), historical baseline comparison (built), safe replay with a
-read/write/destructive safety classification (built), and a regression test suite
-you can run in CI (built). See [`docs/architecture.md`](docs/architecture.md) for
-the full design and [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for what's actually
-shipped vs. planned at any point in time.
+read/write/destructive safety classification (built), a regression test suite you
+can run in CI (built), and a server-rendered web UI (built). See
+[`docs/architecture.md`](docs/architecture.md) for the full design and
+[`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for what's actually shipped vs. planned at
+any point in time.
 
-Still missing: a web UI (everything above is CLI/API-only today) and any
-LLM-powered analysis layer (deterministic rules stay the default and requirement;
-LLM analysis would only ever be additive, per the design principles below).
+Still missing: any LLM-powered analysis layer (deterministic rules stay the default
+and requirement; LLM analysis would only ever be additive, per the design principles
+below).
 
 ## Design principles
 
