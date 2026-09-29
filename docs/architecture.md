@@ -30,7 +30,7 @@ Four kinds of statements the system can make, never conflated:
   evidence-referenced, never presented as fact.
 - **Recommendations** — remediation hints attached to a finding/category.
 
-## 2. MVP boundary (Phase 1-8)
+## 2. MVP boundary (Phase 1-9)
 
 Phase 1 delivered the substrate everything else builds on: capture a trace, store it,
 retrieve it, look at it. Phase 2 added the execution graph — spans plus their
@@ -47,10 +47,13 @@ re-run the finding engine, and see whether the anomaly clears (section 13). Phas
 added evaluation — declarative assertions about a trace, run as a CI-gateable test
 suite (section 14). Phase 8 added a server-rendered web UI (section 15) exposing all
 of the above visually — requests list, request detail with an interactive execution
-graph, findings, root-cause hypotheses, and a replay form. Concretely, Phase 1-8 =
-SDK + tracing model + SQLite storage + execution graph + rule engine (5 built-in
-rules) + root-cause ranking + historical baseline comparison + replay + file-based
-evaluation + a web UI + a 7-endpoint API + a 6-command CLI. See
+graph, findings, root-cause hypotheses, and a replay form. Phase 9 added an optional
+LLM-powered explanation layer (section 16) that narrates findings/hypotheses in
+plain English, strictly grounded in the evidence already computed — verified against
+a real local Ollama model, not a mock. Concretely, Phase 1-9 = SDK + tracing model +
+SQLite storage + execution graph + rule engine (5 built-in rules) + root-cause
+ranking + historical baseline comparison + replay + file-based evaluation + a web UI
++ an optional LLM explanation layer + an 8-endpoint API + a 6-command CLI. See
 `ROADMAP_HONEST.md` for the authoritative built-vs-not list.
 
 ## 3. Domain models (Phase 1)
@@ -129,7 +132,13 @@ No `baseline` parameter yet — historical-baseline-aware rules are Phase 4 work
 signature will grow then, deliberately not accepting an always-`None` placeholder
 today). `Finding` fields (per product spec 6.5): `finding_id, rule_id, category,
 severity, title, description, evidence, affected_nodes, confidence, recommendation`.
-Rules run independently and are individually unit-testable against fixture traces —
+`finding_id` is a **deterministic** hash of `rule_id` + `affected_nodes` (fixed in
+Phase 9 after it was found to be a random UUID — see section 16 — which broke
+`finding_id` as a stable reference across separate `run_rules()` calls over the same
+trace); two calls over identical trace data always produce identical ids for the
+same logical finding, even though findings are never persisted and are always
+recomputed from scratch. Rules run independently and are individually unit-testable
+against fixture traces —
 this is why the tracing model's attributes are unstructured dicts rather than
 per-span-type subclasses: rules pattern-match on the attributes they care about and
 ignore the rest, so adding a new AI-specific field never requires touching the core
@@ -313,7 +322,7 @@ processor/resource abstractions PyAgentHound doesn't need yet, for a feature
 (ingesting traces from other tools) nothing in Phase 1 uses. Phase 6 adds an adapter
 that maps OTel spans → PyAgentHound `Span`s; it does not replace the native SDK.
 
-## 10. API contract (Phase 1-6)
+## 10. API contract (Phase 1-9)
 
 FastAPI app (`pyagenthound/api/app.py`), OpenAPI docs auto-served at `/docs`.
 
@@ -326,6 +335,7 @@ FastAPI app (`pyagenthound/api/app.py`), OpenAPI docs auto-served at `/docs`.
 | POST   | `/api/traces/{id}/analyze`     | Run the deterministic rule engine + baseline comparison, return `list[Finding]` (sections 5-6) |
 | GET    | `/api/traces/{id}/root-cause`  | Ranked `list[RootCauseHypothesis]` (section 6), baseline-aware |
 | POST   | `/api/traces/{id}/replay`      | Clone + override + re-analyze, return `ReplayResult` (section 13); `409` if an unconfirmed non-`READ_ONLY` override is requested |
+| POST   | `/api/traces/{id}/explain`     | Optional LLM narrative over existing findings/hypotheses, return `LLMExplanation` (section 16); `400` if there are no findings to explain, `503` if the provider is unreachable, `422` if its output fails evidence-grounding validation |
 
 `root-cause` as a separate `GET` endpoint (rather than folding it into `analyze`) is
 a deliberate deviation from the product spec's endpoint list (section 19), which
@@ -359,19 +369,30 @@ documented future capability, not built.
   and historical rule frequency computation, replay (safety classification defaults,
   plan confirmation logic, clone-with-overrides id remapping, a real
   finding-resolves-after-override case), each of the 5 assertion types plus JSON
-  save/load round-trips.
+  save/load round-trips, `finding_id` determinism (two separate `run_rules()` calls
+  over the identical trace produce identical ids — section 16's regression test),
+  and LLM explanation validation against a fake, deterministic provider (grounded
+  citation accepted; invalid JSON, missing fields, non-string citations, and an
+  unsupported `finding_id` each independently rejected).
 - **Integration** — `tests/integration/`: FastAPI `TestClient` against a temp SQLite
-  db (full ingest → list → get → graph → analyze → root-cause → replay flow, plus a
-  two-trace baseline scenario verifying `temporal_correlation` gets set, and a `409`
-  on an unconfirmed unsafe replay override), CLI commands (`init`, `inspect`,
-  `analyze` with and without a baseline, `replay` with and without an unsafe
-  override, `test` against passing/failing/missing-trace/empty-directory cases)
-  against a fixture db, and the web UI (`test_ui.py`: requests list empty/populated/
-  filtered states, request-detail rendering asserted against real finding/root-cause
-  text, the graph script tag's `data-trace-id`, and the replay form's POST → 303
-  redirect — both the success path to the new replayed trace and the `?replay_error=`
-  path for an unconfirmed unsafe override). The full UI was also driven in a real
-  browser (not just `TestClient`) — see section 15 for what that verified.
+  db (full ingest → list → get → graph → analyze → root-cause → replay → explain
+  flow, plus a two-trace baseline scenario verifying `temporal_correlation` gets
+  set, a `409` on an unconfirmed unsafe replay override, and `400`/`503` explain
+  error paths with a fake/unavailable provider), CLI commands (`init`, `inspect`,
+  `analyze` with and without a baseline or `--explain`, `replay` with and without an
+  unsafe override, `test` against passing/failing/missing-trace/empty-directory
+  cases) against a fixture db, and the web UI (`test_ui.py`: requests list
+  empty/populated/filtered states, request-detail rendering asserted against real
+  finding/root-cause text, the graph script tag's `data-trace-id`, and the replay
+  form's POST → 303 redirect — both the success path to the new replayed trace and
+  the `?replay_error=` path for an unconfirmed unsafe override). The full UI was
+  also driven in a real browser (not just `TestClient`) — see section 15 for what
+  that verified.
+- **LLM integration** (`tests/integration/test_llm_real_ollama.py`) — the one
+  intentional exception to "no test depends on an external LLM API" (product spec
+  section 28): `explain_root_cause` against a genuinely running local Ollama,
+  auto-`skipif` when Ollama isn't reachable on `localhost:11434`. Never a paid
+  cloud API — this only ever talks to localhost.
 - No test depends on a real external LLM API — there are none in Phase 1's scope, and
   this constraint carries forward as later phases add LLM-powered analysis.
 
@@ -563,3 +584,68 @@ section 13.
 Not built: an `Overview` dashboard, a `Settings` page, authentication (the API
 server has none — section 11 — and neither does the UI), a JS-driven live-updating
 requests list (the list is a plain server-rendered page, reloaded on navigation).
+
+## 16. LLM-powered analysis (Phase 9 — built)
+
+Strictly additive and opt-in — design principles 7-8 ("make the system useful
+without an LLM," "LLM-powered analysis should be optional"). This layer never
+detects anything new and never replaces the deterministic rule/root-cause engines;
+it only asks a model to narrate, in plain English, findings and hypotheses those
+engines already computed. The model is shown **only** the structured evidence —
+`finding_id`, category, severity, title, description, evidence descriptions,
+confidence, recommendation per finding; label/statement/`finding_id`/confidence per
+hypothesis — never the raw trace, never asked to produce its own confidence number.
+
+`pyagenthound/llm/`:
+
+```python
+class LLMProvider(Protocol):
+    name: str
+    def complete(self, system: str, user: str) -> str: ...
+```
+
+Provider-neutral by design (product spec sections 1/25), but **only `OllamaProvider`
+is implemented** — local, no API key, no network egress beyond localhost, matching
+"local-first development should be possible." OpenAI/Anthropic providers would
+implement the same three-line Protocol; not built, because there's no way to verify
+them without paid API keys in this environment, and an unverified provider
+implementation would be worse than none (`no-fake-stubs` policy).
+
+`explain_root_cause(findings, hypotheses, provider) -> LLMExplanation` builds a
+strict prompt instructing the model to respond with **only** JSON —
+`{"narrative": "...", "cited_finding_ids": [...]}` — then validates the response
+before returning anything: invalid JSON, a missing field, or (critically) any
+`finding_id` in `cited_finding_ids` that doesn't exist in the findings it was given
+all raise `LLMOutputValidationError` rather than being silently accepted or
+corrected. This is the concrete implementation of product spec section 7's "reject
+unsupported claims" — not a comment, an enforced check with its own test coverage.
+`LLMUnavailableError` (provider unreachable, e.g. Ollama not running) is a distinct,
+separately-handled failure — both fail *soft* at the call sites: `pyagenthound
+analyze --explain` prints the deterministic output regardless and only adds a short
+"unavailable" or "rejected" line if the LLM step fails; `POST /api/traces/{id}/explain`
+returns `503`/`422` respectively rather than a 500.
+
+**Bug found and fixed while building this** (`pyagenthound/rules/models.py`):
+`Finding.finding_id` was a random UUID generated fresh on every `Finding`
+construction. Findings aren't persisted — every `analyze`/`root-cause`/`explain`
+call recomputes them from the trace — so two separate `run_rules()` calls over the
+*identical* trace produced *different* ids for what is logically the same finding.
+This was invisible until this phase needed a `finding_id` to stay stable as a cross-
+call reference (the LLM citing one, the CLI printing the deterministic sections
+using a *different* internally-recomputed set) — surfaced immediately as citation-
+validation test failures. Fixed by making `finding_id` a deterministic hash of
+`rule_id` + `affected_nodes` instead of random (`model_validator(mode="after")`);
+regression test (`test_finding_id_is_deterministic_across_repeated_runs`) asserts
+two separate `run_rules()` calls produce identical ids. Verified live: the CLI and a
+separately-started `pyagenthound serve` process, running against the same trace,
+independently computed and returned the exact same `finding_id`.
+
+Verified end to end against a real local `qwen2.5:7b-instruct` (via Ollama, no
+network egress beyond localhost) on the stale-document scenario — genuine,
+unedited narrative: *"The retrieval process is returning outdated document
+versions, as two out of three retrieved documents predate the newest version,"*
+citing the real finding id, via both `pyagenthound analyze --explain` and
+`POST .../explain`.
+
+Not built: OpenAI/Anthropic/other cloud providers (see above), any caching of LLM
+output, streaming responses, an LLM-suggested-fix-then-auto-replay loop.

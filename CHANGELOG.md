@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Phase 9: optional LLM-powered explanation (`pyagenthound/llm/`) — `LLMProvider`
+  Protocol, `OllamaProvider` (local, no API key). `explain_root_cause()` shows a
+  model only the structured findings/hypotheses already computed and requires
+  strict JSON output; any cited `finding_id` not present in the real findings is a
+  hard `LLMOutputValidationError`. `pyagenthound analyze --explain` and
+  `POST /api/traces/{id}/explain` (`400`/`503`/`422`); both fail soft rather than
+  crash when no LLM is running. Verified against a real local `qwen2.5:7b-instruct`.
+
+### Fixed
+- `Finding.finding_id` was a random UUID generated fresh on every construction;
+  since findings are recomputed from scratch on every `analyze`/`root-cause`/
+  `explain` call rather than persisted, two separate `run_rules()` calls over the
+  identical trace produced different ids for the same logical finding. Now a
+  deterministic hash of `rule_id` + `affected_nodes`.
+
+### Added
 - Phase 8: web UI (`pyagenthound/ui/`) — server-rendered (FastAPI + Jinja2, no
   npm/build step). `GET /` (requests list, `name`/`status` filters),
   `GET /requests/{id}` (consolidated detail: metadata, interactive execution graph,

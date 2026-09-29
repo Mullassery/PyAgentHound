@@ -2,11 +2,11 @@
 
 **Evidence-based debugging and root-cause analysis for AI agents and LLM applications.**
 
-> **Status: Phase 1-8 MVP.** Trace capture, storage, inspection, a queryable execution
+> **Status: Phase 1-9 MVP.** Trace capture, storage, inspection, a queryable execution
 > graph, a deterministic rule engine (5 built-in rules), root-cause ranking,
 > historical baseline comparison, safe replay, file-based evaluation/regression
-> testing, and a server-rendered web UI work end to end and are tested. LLM-powered
-> analysis described below in "Where this is going" is **not built yet** — see
+> testing, a server-rendered web UI, and an optional LLM-powered explanation layer
+> (local Ollama, evidence-grounded) work end to end and are tested — see
 > [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for the exact built-vs-not line.
 
 ## The problem
@@ -187,7 +187,31 @@ the same fix-and-verify loop as the CLI, just clickable. Server-rendered (FastAP
 Jinja2), no npm/build step — the graph is the only vanilla-JS piece, and it's a thin
 client of the same `GET /api/traces/{id}/graph` JSON the API already serves.
 
-## What works today (Phase 1-8)
+### LLM-powered explanation (optional)
+
+Deterministic rules stay the default and the requirement — this layer only adds an
+optional plain-English narrative over findings that already exist, using a real
+local model (Ollama, no cloud API key, no network egress beyond localhost):
+
+```
+$ pyagenthound analyze <trace_id> --explain
+
+LLM Explanation (ollama, qwen2.5:7b-instruct)
+  The retrieval process is returning outdated document versions, as two out of
+  three retrieved documents predate the newest version.
+  cites: finding_427f29fad79b
+```
+
+Real, unedited output from a genuine `qwen2.5:7b-instruct` call on the
+stale-document scenario. The model is shown *only* the structured findings/
+hypotheses already computed — never the raw trace, never asked to invent a fact or
+its own confidence number — and its response is validated before being shown: if it
+cites a `finding_id` that doesn't actually exist in the evidence it was given, that's
+a hard rejection (`LLMOutputValidationError`), not something silently accepted. If
+no local Ollama is running, `--explain` fails soft — the deterministic output above
+it still prints normally, with a one-line "unavailable" note instead of a crash.
+
+## What works today (Phase 1-9)
 
 - A Python SDK (`pyagenthound`) with an OpenTelemetry-compatible tracing model:
   traces, spans (with AI-specific `SpanType`s — `LLM`, `RETRIEVAL`, `TOOL`, `MCP`,
@@ -222,6 +246,11 @@ client of the same `GET /api/traces/{id}/graph` JSON the API already serves.
   list, a request-detail page with an interactive execution graph (click any node
   for its attributes), findings, root-cause hypotheses, and a replay form. Server-
   rendered, no npm/build step.
+- An optional LLM-powered explanation layer (`pyagenthound analyze --explain`,
+  `POST /api/traces/{id}/explain`) — a local Ollama model narrates existing findings
+  in plain English; never invents evidence, and any unsupported citation is a hard
+  rejection, not a silent pass. Deterministic rules remain the default and
+  requirement; this is strictly additive.
 - A CLI to inspect, analyze, replay, and test what was captured.
 
 ## Quickstart
@@ -250,6 +279,7 @@ with hound.trace("customer-support-request") as trace:
 pyagenthound inspect <trace_id>
 pyagenthound analyze <trace_id>
 pyagenthound replay <trace_id> --set 'retrieval.documents=[]'   # try a fix
+pyagenthound analyze <trace_id> --explain   # optional: local-LLM narrative (needs Ollama)
 pyagenthound serve   # then open http://localhost:8787 for the web UI
 ```
 
@@ -322,14 +352,16 @@ rule engine (built — 5 rules; LLM-powered analysis is optional and additive, n
 required), root-cause ranking with an explicit, fully-implemented confidence model
 (built), historical baseline comparison (built), safe replay with a
 read/write/destructive safety classification (built), a regression test suite you
-can run in CI (built), and a server-rendered web UI (built). See
+can run in CI (built), a server-rendered web UI (built), and an optional
+evidence-grounded LLM explanation layer (built — local Ollama only so far). See
 [`docs/architecture.md`](docs/architecture.md) for the full design and
 [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for what's actually shipped vs. planned at
 any point in time.
 
-Still missing: any LLM-powered analysis layer (deterministic rules stay the default
-and requirement; LLM analysis would only ever be additive, per the design principles
-below).
+Still missing: cloud LLM providers (OpenAI, Anthropic, etc.) for the explanation
+layer — untestable without paid API keys in this environment, so not built rather
+than built-and-unverified. `LLMProvider` is a 3-line Protocol; adding one is
+straightforward whenever it can actually be tested.
 
 ## Design principles
 

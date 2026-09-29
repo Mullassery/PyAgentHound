@@ -213,3 +213,27 @@ def test_run_rules_aggregates_across_builtin_rules():
     rule_ids = {f.rule_id for f in findings}
     assert "empty_retrieval" in rule_ids
     assert "tool_failure" in rule_ids
+
+
+def test_finding_id_is_deterministic_across_repeated_runs():
+    """Regression test: finding_id used to be random (uuid4 per call), so two
+    separate run_rules() calls over the identical trace produced different ids for
+    "the same" finding -- silently breaking any cross-call reference to a finding_id
+    (root-cause hypotheses, LLM citations, a UI showing findings then re-fetching
+    root-cause separately). finding_id must be a stable hash of (rule_id,
+    affected_nodes), not random.
+    """
+    trace = Trace(name="t")
+    trace.spans = [
+        Span(
+            trace_id=trace.trace_id,
+            name="retrieval",
+            span_type=SpanType.RETRIEVAL,
+            attributes={"documents": []},
+        )
+    ]
+
+    first = run_rules(trace, _graph_for(trace))
+    second = run_rules(trace, _graph_for(trace))
+
+    assert [f.finding_id for f in first] == [f.finding_id for f in second]

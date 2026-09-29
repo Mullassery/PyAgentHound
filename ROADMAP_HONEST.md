@@ -1,7 +1,7 @@
 # PyAgentHound — Honest Status
 
-**Current Version:** unreleased, Phase 8 (pre-0.1.0)
-**Last Updated:** 2026-09-28
+**Current Version:** unreleased, Phase 9 (pre-0.1.0)
+**Last Updated:** 2026-09-29
 
 This file exists to say plainly what's built-and-verified, what's not built yet, and
 what's a known, documented limitation vs. a future feature. `README.md` and
@@ -25,12 +25,13 @@ actually verified this" companion, so roadmap planning starts from reality.
   `offset`, `status`, `name`), `GET /api/traces/{id}`, `GET /api/traces/{id}/graph`,
   `POST /api/traces/{id}/analyze`, `GET /api/traces/{id}/root-cause`,
   `POST /api/traces/{id}/replay` (`409` if an unconfirmed unsafe override is
-  requested); OpenAPI docs at `/docs`.
+  requested), `POST /api/traces/{id}/explain` (`400`/`503`/`422` for no-findings/
+  provider-unreachable/failed-validation); OpenAPI docs at `/docs`.
 - **CLI** — `pyagenthound init`, `pyagenthound serve`, `pyagenthound inspect <id>`,
   `pyagenthound analyze <id>` (prints findings, baseline comparison when available,
-  and ranked root-cause hypotheses), `pyagenthound replay <id> --set NAME.KEY=VALUE
-  [--allow-unsafe]`, `pyagenthound test <tests_dir>` (exits non-zero on failure, for
-  CI).
+  ranked root-cause hypotheses, and — with `--explain` — an LLM narrative),
+  `pyagenthound replay <id> --set NAME.KEY=VALUE [--allow-unsafe]`,
+  `pyagenthound test <tests_dir>` (exits non-zero on failure, for CI).
 - **Execution graph** — `pyagenthound/graph/`: `Node`/`Edge`/`ExecutionGraph` domain
   model with query methods (`nodes_by_type`, `edges_by_relationship`,
   `nodes_in_window`, `outgoing`/`incoming`/`neighbors`, `ancestors`); `build_graph()`
@@ -100,6 +101,31 @@ actually verified this" companion, so roadmap planning starts from reality.
   `DOCUMENT` leaf node's real attributes appear on click), and the full replay loop
   works end to end — submitting a fix through the form redirects to a new page
   whose findings count visibly drops with the fixed rule_id gone.
+- **LLM-powered explanation** — `pyagenthound/llm/`: `LLMProvider` Protocol,
+  `OllamaProvider` (local, no API key). `explain_root_cause()` shows a model only
+  the structured findings/hypotheses already computed and requires strict JSON
+  output; any cited `finding_id` not present in the real findings is a hard
+  `LLMOutputValidationError`, not silently dropped (product spec 7: "reject
+  unsupported claims" — enforced, tested, not just documented). `pyagenthound
+  analyze --explain` and `POST .../explain`; both fail soft/typed
+  (`LLMUnavailableError`→ warning/`503`) rather than crashing when no LLM is
+  running. Verified against a real local `qwen2.5:7b-instruct` via Ollama (no cloud
+  API, no network egress beyond localhost) — genuine narrative, correctly citing
+  the real finding id, via both the CLI and the API, and a dedicated
+  `pytest.mark.skipif`-guarded integration test. OpenAI/Anthropic providers would
+  implement the same 3-line Protocol but aren't built — no way to verify them
+  without paid API keys in this environment.
+- **Bug found and fixed while building the above**: `Finding.finding_id` was a
+  random UUID generated fresh on every construction; since findings are never
+  persisted and get recomputed from scratch on every `analyze`/`root-cause`/
+  `explain` call, two separate `run_rules()` calls over the *identical* trace
+  produced *different* ids for the same logical finding. Invisible until this phase
+  needed `finding_id` to be a stable cross-call reference; surfaced immediately as
+  LLM-citation-validation test failures. Fixed: `finding_id` is now a deterministic
+  hash of `rule_id` + `affected_nodes`. Regression test asserts two separate
+  `run_rules()` calls produce identical ids; verified live that a separately
+  started `pyagenthound serve` process and the CLI independently compute the same
+  `finding_id` for the same trace.
 
 Re-verify this list's "🟢" claims by actually running `pytest -q` — a memory of "it
 passed once" is not the same as it passing now.
@@ -117,7 +143,8 @@ a stable shape, but zero implementation exists:
   arguments, schema mismatches, tool/agent loops, timeout propagation, failed
   guardrails, output schema violations, etc. (model/prompt change detection is
   now covered by baseline comparison, not a rule-engine rule).
-- LLM-powered (optional) analysis layer.
+- OpenAI/Anthropic (or any other) LLM providers — only `OllamaProvider` exists;
+  see the 🔴 section for why.
 - Replaying by actually re-invoking a live model/tool/retriever — today's replay
   only edits recorded attributes and re-analyzes; it never calls anything.
 - A `pyagenthound test create` scaffolding command (hand-authoring the JSON is the
@@ -128,6 +155,10 @@ a stable shape, but zero implementation exists:
 
 ## 🔴 Explicitly out of scope for now
 
+- Cloud LLM providers (OpenAI, Anthropic, etc.) for the explanation layer — this
+  environment has no paid API keys to test them with, and an unverified provider
+  implementation would be worse than none. `LLMProvider` is a 3-line Protocol;
+  implementing one is straightforward whenever it can actually be tested.
 - An `Overview` dashboard page and a `Settings` page in the web UI — both would be
   hollow placeholders today (no cross-request aggregate stats worth showing, no
   configurable settings to expose).

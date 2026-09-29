@@ -7,6 +7,7 @@ python examples/minimal_trace.py
 pyagenthound inspect <trace_id>   # trace_id is printed by the example
 pyagenthound analyze <trace_id>   # findings + ranked root-cause hypotheses
 pyagenthound replay <trace_id> --set 'retrieval.documents=[]'   # try a fix, see if it clears
+pyagenthound analyze <trace_id> --explain   # optional: local-LLM narrative (needs Ollama)
 ```
 
 That's the whole loop: instrument → capture → inspect → analyze → replay, entirely
@@ -39,6 +40,7 @@ curl http://localhost:8787/api/traces/<trace_id>/root-cause
 curl -X POST http://localhost:8787/api/traces/<trace_id>/replay \
   -H 'Content-Type: application/json' \
   -d '{"overrides": {"<span_id>": {"documents": []}}}'
+curl -X POST http://localhost:8787/api/traces/<trace_id>/explain
 ```
 
 If a prior successful execution with the same `trace` name exists in the same
@@ -77,7 +79,23 @@ hypotheses, and a replay form (same `NAME.KEY=VALUE` syntax as `--set` above, pl
 an "allow unsafe" checkbox). Server-rendered, no separate frontend build step — see
 `../docs/architecture.md` section 15.
 
+## Optional LLM explanation
+
+Requires [Ollama](https://ollama.com) running locally with a model pulled (default
+`qwen2.5:7b-instruct`):
+
+```bash
+ollama pull qwen2.5:7b-instruct
+pyagenthound analyze <trace_id> --explain
+```
+
+The model only ever sees the structured findings/hypotheses already computed, never
+the raw trace, and any citation it makes to a `finding_id` that doesn't actually
+exist is rejected rather than shown — see `../docs/architecture.md` section 16. If
+Ollama isn't running, `--explain` fails soft: the deterministic output above it
+still prints normally.
+
 ## What's not here yet
 
-No LLM-powered analysis layer — see `../ROADMAP_HONEST.md` for exactly what's built
-vs. planned.
+No cloud LLM providers (OpenAI, Anthropic, etc.) — only local Ollama — see
+`../ROADMAP_HONEST.md` for exactly what's built vs. planned.

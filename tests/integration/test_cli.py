@@ -254,3 +254,80 @@ def test_test_command_no_test_cases(tmp_path):
 
     assert result.exit_code == 0
     assert "No test cases found" in result.output
+
+
+def test_analyze_explain_flag_prints_grounded_narrative(tmp_path, monkeypatch):
+    import json
+
+    db_path = tmp_path / "t.db"
+    store = SQLiteTraceStore(db_path)
+    trace = Trace(name="req")
+    trace.spans.append(
+        Span(
+            trace_id=trace.trace_id,
+            name="retrieval",
+            span_type=SpanType.RETRIEVAL,
+            attributes={"documents": []},
+        )
+    )
+    store.save_trace(trace)
+
+    from pyagenthound.graph.builder import build_graph
+    from pyagenthound.rules.engine import run_rules
+
+    real_finding_id = run_rules(trace, build_graph(trace))[0].finding_id
+
+    class _FakeProvider:
+        name = "fake"
+        model = "fake-model"
+
+        def __init__(self, model=None):
+            pass
+
+        def complete(self, system, user):
+            return json.dumps(
+                {"narrative": "No documents came back.", "cited_finding_ids": [real_finding_id]}
+            )
+
+    monkeypatch.setattr("pyagenthound.cli.commands.analyze.OllamaProvider", _FakeProvider)
+
+    result = CliRunner().invoke(
+        cli, ["analyze", trace.trace_id, "--explain", "--db", str(db_path)]
+    )
+
+    assert result.exit_code == 0
+    assert "LLM Explanation" in result.output
+    assert "No documents came back." in result.output
+
+
+def test_analyze_explain_flag_shows_unavailable_message(tmp_path, monkeypatch):
+    from pyagenthound.llm.providers import LLMUnavailableError
+
+    db_path = tmp_path / "t.db"
+    store = SQLiteTraceStore(db_path)
+    trace = Trace(name="req")
+    trace.spans.append(
+        Span(
+            trace_id=trace.trace_id,
+            name="retrieval",
+            span_type=SpanType.RETRIEVAL,
+            attributes={"documents": []},
+        )
+    )
+    store.save_trace(trace)
+
+    class _UnavailableProvider:
+        def __init__(self, model=None):
+            pass
+
+        def complete(self, system, user):
+            raise LLMUnavailableError("no ollama here")
+
+    monkeypatch.setattr("pyagenthound.cli.commands.analyze.OllamaProvider", _UnavailableProvider)
+
+    result = CliRunner().invoke(
+        cli, ["analyze", trace.trace_id, "--explain", "--db", str(db_path)]
+    )
+
+    assert result.exit_code == 0
+    assert "unavailable" in result.output

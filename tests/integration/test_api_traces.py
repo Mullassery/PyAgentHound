@@ -247,3 +247,92 @@ def test_replay_requires_confirmation_for_unsafe_override(tmp_path):
 def test_replay_404(tmp_path):
     resp = _client(tmp_path).post("/api/traces/does-not-exist/replay", json={"overrides": {}})
     assert resp.status_code == 404
+
+
+class _FakeProvider:
+    name = "fake"
+    model = "fake-model"
+
+    def __init__(self, response: str):
+        self._response = response
+
+    def complete(self, system: str, user: str) -> str:
+        return self._response
+
+
+def test_explain_returns_grounded_explanation(tmp_path, monkeypatch):
+    client = _client(tmp_path)
+    trace = Trace(name="req")
+    trace.spans.append(
+        Span(
+            trace_id=trace.trace_id,
+            name="retrieval",
+            span_type=SpanType.RETRIEVAL,
+            attributes={"documents": []},
+        )
+    )
+    client.post("/api/traces", json=trace.model_dump(mode="json"))
+
+    analyze_resp = client.post(f"/api/traces/{trace.trace_id}/analyze")
+    real_finding_id = analyze_resp.json()[0]["finding_id"]
+
+    import json
+
+    fake_response = json.dumps(
+        {"narrative": "No documents came back.", "cited_finding_ids": [real_finding_id]}
+    )
+    monkeypatch.setattr(
+        "pyagenthound.api.routes.OllamaProvider",
+        lambda: _FakeProvider(fake_response),
+    )
+
+    resp = client.post(f"/api/traces/{trace.trace_id}/explain")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["narrative"] == "No documents came back."
+    assert body["cited_finding_ids"] == [real_finding_id]
+
+
+def test_explain_no_findings_returns_400(tmp_path):
+    client = _client(tmp_path)
+    trace = Trace(name="req")
+    client.post("/api/traces", json=trace.model_dump(mode="json"))
+
+    resp = client.post(f"/api/traces/{trace.trace_id}/explain")
+
+    assert resp.status_code == 400
+
+
+def test_explain_unavailable_provider_returns_503(tmp_path, monkeypatch):
+    from pyagenthound.llm.providers import LLMUnavailableError
+
+    client = _client(tmp_path)
+    trace = Trace(name="req")
+    trace.spans.append(
+        Span(
+            trace_id=trace.trace_id,
+            name="retrieval",
+            span_type=SpanType.RETRIEVAL,
+            attributes={"documents": []},
+        )
+    )
+    client.post("/api/traces", json=trace.model_dump(mode="json"))
+
+    class _UnavailableProvider:
+        name = "fake"
+        model = "fake-model"
+
+        def complete(self, system: str, user: str) -> str:
+            raise LLMUnavailableError("no ollama here")
+
+    monkeypatch.setattr("pyagenthound.api.routes.OllamaProvider", _UnavailableProvider)
+
+    resp = client.post(f"/api/traces/{trace.trace_id}/explain")
+
+    assert resp.status_code == 503
+
+
+def test_explain_404(tmp_path):
+    resp = _client(tmp_path).post("/api/traces/does-not-exist/explain")
+    assert resp.status_code == 404

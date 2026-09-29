@@ -6,6 +6,8 @@ from rich.console import Console
 from pyagenthound.baseline.engine import compare_to_baseline, find_baseline
 from pyagenthound.config import DEFAULT_DB_PATH
 from pyagenthound.graph.builder import build_graph
+from pyagenthound.llm.explain import LLMOutputValidationError, explain_root_cause
+from pyagenthound.llm.providers import LLMUnavailableError, OllamaProvider
 from pyagenthound.rootcause.engine import rank_root_causes
 from pyagenthound.rules.engine import run_rules
 from pyagenthound.storage.sqlite_store import SQLiteTraceStore
@@ -26,7 +28,18 @@ _LABEL_TEXT = {
 @click.command("analyze")
 @click.argument("trace_id")
 @click.option("--db", "db_path", default=str(DEFAULT_DB_PATH), show_default=True)
-def analyze_command(trace_id: str, db_path: str) -> None:
+@click.option(
+    "--explain",
+    "explain_flag",
+    is_flag=True,
+    default=False,
+    help="Ask a local Ollama model to narrate the findings in plain English. "
+    "Optional, additive, never required — never invents evidence: every claim is "
+    "validated against the real findings, and this never replaces the deterministic "
+    "output above.",
+)
+@click.option("--llm-model", "llm_model", default="qwen2.5:7b-instruct", show_default=True)
+def analyze_command(trace_id: str, db_path: str, explain_flag: bool, llm_model: str) -> None:
     """Run the deterministic rule engine + root-cause ranking against a captured
     trace and print findings and ranked hypotheses.
 
@@ -89,3 +102,15 @@ def analyze_command(trace_id: str, db_path: str) -> None:
         console.print(f"  confidence: {hypothesis.confidence:.2f}  ({', '.join(parts)})")
         if hypothesis.recommendation:
             console.print(f"  recommendation: {hypothesis.recommendation}")
+
+    if explain_flag:
+        console.print(f"\n[bold]LLM Explanation[/bold] (ollama, {llm_model})")
+        try:
+            explanation = explain_root_cause(findings, hypotheses, OllamaProvider(model=llm_model))
+        except LLMUnavailableError as exc:
+            console.print(f"  unavailable: {exc}")
+        except LLMOutputValidationError as exc:
+            console.print(f"  rejected — model cited unsupported evidence: {exc}")
+        else:
+            console.print(f"  {explanation.narrative}")
+            console.print(f"  cites: {', '.join(explanation.cited_finding_ids)}")

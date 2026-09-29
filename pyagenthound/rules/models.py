@@ -8,18 +8,14 @@ set of findings into ranked, evidence-referenced hypotheses.
 
 from __future__ import annotations
 
-import uuid
+import hashlib
 from enum import Enum
 from typing import Any, Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from pyagenthound.graph.models import ExecutionGraph
 from pyagenthound.sdk.models import Trace
-
-
-def _new_finding_id() -> str:
-    return f"finding_{uuid.uuid4().hex[:12]}"
 
 
 class FailureCategory(str, Enum):
@@ -54,7 +50,14 @@ class Evidence(BaseModel):
 
 
 class Finding(BaseModel):
-    finding_id: str = Field(default_factory=_new_finding_id)
+    """`finding_id` is deterministic — a hash of `rule_id` + `affected_nodes` — not
+    random. Two separate `run_rules` calls over the identical trace must produce the
+    same id for "the same" finding, so a finding_id stays a stable reference across
+    an analyze call, a root-cause ranking call, and an LLM explanation call, even
+    though findings aren't persisted and get recomputed from scratch each time.
+    """
+
+    finding_id: str = ""
     rule_id: str
     category: FailureCategory
     severity: Severity
@@ -64,6 +67,14 @@ class Finding(BaseModel):
     affected_nodes: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
     recommendation: str | None = None
+
+    @model_validator(mode="after")
+    def _assign_deterministic_id(self) -> Finding:
+        if not self.finding_id:
+            basis = f"{self.rule_id}|{'|'.join(sorted(self.affected_nodes))}"
+            digest = hashlib.sha256(basis.encode()).hexdigest()[:12]
+            self.finding_id = f"finding_{digest}"
+        return self
 
 
 class Rule(Protocol):

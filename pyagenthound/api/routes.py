@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pyagenthound.baseline.engine import compare_to_baseline, find_baseline
 from pyagenthound.graph.builder import build_graph
 from pyagenthound.graph.models import ExecutionGraph
+from pyagenthound.llm.explain import LLMExplanation, LLMOutputValidationError, explain_root_cause
+from pyagenthound.llm.providers import LLMUnavailableError, OllamaProvider
 from pyagenthound.replay.engine import UnsafeReplayError, run_replay
 from pyagenthound.replay.models import ReplayRequest, ReplayResult
 from pyagenthound.rootcause.engine import rank_root_causes
@@ -63,6 +65,29 @@ def get_trace_root_cause(trace_id: str, request: Request) -> list[RootCauseHypot
     trace = _get_trace_or_404(trace_id, request)
     graph = build_graph(trace)
     return rank_root_causes(trace, graph, store=request.app.state.store)
+
+
+@router.post("/traces/{trace_id}/explain")
+def explain_trace(trace_id: str, request: Request) -> LLMExplanation:
+    trace = _get_trace_or_404(trace_id, request)
+    graph = build_graph(trace)
+    store = request.app.state.store
+
+    findings = run_rules(trace, graph)
+    baseline = find_baseline(store, trace)
+    if baseline is not None:
+        findings = [*findings, *compare_to_baseline(trace, baseline)]
+    if not findings:
+        raise HTTPException(status_code=400, detail="no findings to explain")
+
+    hypotheses = rank_root_causes(trace, graph, store=store)
+
+    try:
+        return explain_root_cause(findings, hypotheses, OllamaProvider())
+    except LLMUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LLMOutputValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/traces/{trace_id}/replay")
