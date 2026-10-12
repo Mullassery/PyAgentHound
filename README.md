@@ -1,6 +1,6 @@
 # PyAgentHound
 
-[![Grapify](https://img.shields.io/badge/Grapify-Code%20Scan-purple)](https://grapify.ai)
+[![Graphify](https://img.shields.io/badge/Graphify-knowledge%20graph-blue)](https://github.com/Graphify-Labs/graphify)
 
 **Evidence-based debugging and root-cause analysis for AI agents and LLM applications.**
 
