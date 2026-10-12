@@ -1,5 +1,7 @@
 # PyAgentHound
 
+[![Grapify](https://img.shields.io/badge/Grapify-Code%20Scan-purple)](https://grapify.ai)
+
 **Evidence-based debugging and root-cause analysis for AI agents and LLM applications.**
 
 > **Status: Phase 1-9 MVP.** Trace capture, storage, inspection, a queryable execution
