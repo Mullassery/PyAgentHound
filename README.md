@@ -1,266 +1,116 @@
 # PyAgentHound
 
-[![Graphify](https://img.shields.io/badge/Graphify-knowledge%20graph-blue)](https://github.com/Graphify-Labs/graphify)
+Evidence-based debugging and root-cause analysis for AI agents and LLM applications — trace, analyze, replay, and explain why a run produced its result.
 
-**Evidence-based debugging and root-cause analysis for AI agents and LLM applications.**
+[![CI](https://github.com/Mullassery/PyAgentHound/actions/workflows/ci.yml/badge.svg)](https://github.com/Mullassery/PyAgentHound/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-> **Status: Phase 1-9 MVP.** Trace capture, storage, inspection, a queryable execution
-> graph, a deterministic rule engine (5 built-in rules), root-cause ranking,
-> historical baseline comparison, safe replay, file-based evaluation/regression
-> testing, a server-rendered web UI, and an optional LLM-powered explanation layer
-> (local Ollama, evidence-grounded) work end to end and are tested — see
-> [`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for the exact built-vs-not line.
+> **Status: Phase 1–9 MVP (Pre-Alpha).** Trace capture, storage, inspection, a
+> queryable execution graph, a deterministic rule engine (5 built-in rules),
+> root-cause ranking, historical baseline comparison, safe replay, file-based
+> evaluation/regression testing, a server-rendered web UI, and an optional
+> LLM-powered explanation layer (local Ollama, evidence-grounded) work end to end
+> and are tested — see [ROADMAP_HONEST.md](ROADMAP_HONEST.md) for the exact
+> built-vs-not line.
 
-## The problem
+## What it is
 
-Traditional observability tells you *what happened*:
-
-```
-request failed
-API returned 500
-latency = 4.2s
-```
-
-That's not enough for AI systems, which fail in AI-shaped ways: retrieval returned
-stale documents, the wrong tool got selected, a prompt changed and nobody noticed,
-the model's context was silently truncated. Debugging that today means manually
-reading through logs and hoping you spot the anomaly.
-
-PyAgentHound's job is to answer a more specific question:
+PyAgentHound answers a specific question conventional observability does not:
 
 > **Why did my AI application produce this result?**
 
-not just "what happened during this request?" — by capturing execution evidence
-across the full path (request → agent → prompt → retriever → vector DB → tools/MCP →
-model → response), assembling it into a causal execution graph, and running analysis
-over that graph.
+not just "what happened during this request?" It captures execution evidence
+across the full path (request → agent → prompt → retriever → vector DB →
+tools/MCP → model → response), assembles it into a causal execution graph, and
+runs deterministic analysis over that graph. Every finding distinguishes
+**observed facts** from **detected anomalies** from **inferred causes** from
+**recommendations**, and every conclusion carries an evidence reference — an
+inference is never presented as a fact.
 
-## How it finds root causes
+It is local-first: traces write straight to a local SQLite database, and an
+optional local Ollama model can narrate findings. No cloud dependency.
 
-Every finding distinguishes **observed facts** from **detected anomalies** from
-**inferred causes** from **recommendations** — an inference is never presented as a
-fact, and every conclusion carries an evidence reference. See
-[`docs/architecture.md`](docs/architecture.md) for the full design.
+## Features / Highlights
 
-What's real today — `pyagenthound analyze <trace_id>` against a trace with three
-retrieved policy documents (2024/2025/2026 versions):
+- **OpenTelemetry-compatible tracing model** — traces, spans with AI-specific
+  `SpanType`s (`LLM`, `RETRIEVAL`, `TOOL`, `MCP`, ...), events, attributes,
+  input/output, and error capture, via the `pyagenthound` Python SDK.
+- **Local-first capture** — no server required; traces write to a local SQLite
+  database. An optional API server (`pyagenthound serve`) + REST ingestion
+  centralizes traces from multiple processes.
+- **Queryable execution graph** — spans linked by parent/child structure, plus
+  retrieved documents as their own nodes for basic data lineage.
+- **Deterministic rule engine** — 5 built-in rules covering retrieval, tool, and
+  configuration failures; each returns evidence-backed findings, with no LLM
+  involved.
+- **Root-cause ranking** — turns findings into `likely_cause` /
+  `contributing_factor` hypotheses with a confidence score decomposed into
+  visible components (evidence strength, causal proximity, temporal
+  correlation, historical frequency).
+- **Historical baseline comparison** — diffs a trace against the most recent
+  prior successful execution of the same named workflow; never claims causality,
+  only states what changed.
+- **Safe replay** — clone a trace, override span attributes, and check whether a
+  finding clears; a `READ_ONLY`/`WRITE`/`DESTRUCTIVE`/`UNKNOWN` safety
+  classification refuses to override a non-`READ_ONLY` span without
+  `--allow-unsafe`.
+- **Evaluation / regression testing** — file-based JSON test cases asserting
+  properties of a captured trace, CI-gateable via a non-zero exit on failure.
+- **Web UI** — server-rendered (FastAPI + Jinja2, no npm/build step): requests
+  list, request detail with an interactive execution graph, findings, root-cause
+  hypotheses, and a replay form.
+- **Optional LLM explanation** — a local Ollama model narrates existing findings
+  in plain English; it never invents evidence, and any unsupported citation is a
+  hard rejection.
 
-```
-HIGH  Retrieved documents include stale versions
-  2 of 3 dated documents retrieved by 'retrieval' predate the most recently
-  dated document retrieved for the same query.
-  evidence: document policy-2024 dated 2024-01-01, newest retrieved is dated 2026-01-01
-  confidence: 0.95
+## Who it's for / Use cases
 
-Root Cause Analysis (deterministic estimate, not verified truth)
+- **Agent/LLM developers** debugging an AI-shaped failure — stale retrieval, the
+  wrong tool selected, a silently changed prompt, truncated context.
+- **Teams adding AI regression tests** that assert a captured trace still
+  behaves (status, output content, absence of a finding, tools not called) in CI.
+- **Anyone who needs a local, private, single-machine debugging loop** — the
+  whole pipeline runs on your machine.
+- **Practitioners who want to test a hypothesized fix** without re-invoking live
+  models or tools, using replay.
 
-Likely cause: Retrieved documents include stale versions
-  confidence: 0.73  (evidence_strength=0.95, causal_proximity=0.30)
-  recommendation: Add a freshness filter or version-aware ranking boost...
-```
+## What it is not
 
-That's real, unedited output. The `likely_cause` label and the confidence score are
-computed, not an LLM guessing a number — but notice `causal_proximity` landed at its
-0.3 floor here: in this trace the `retrieval` and `llm` spans are siblings (both
-children of the same parent) rather than parent→child, so today's simple
-graph-hop heuristic can't credit "retrieval feeds into the final answer" and falls
-back to its off-path default. That's an honest current limitation of the heuristic,
-not a hidden bug — see `docs/architecture.md` section 6.
+- **Not a full observability platform.** It is early-stage, CLI/web-UI, and
+  single-machine — not a replacement for a mature, widely-deployed tracing
+  backend at scale.
+- **Not cloud-provider supported for explanations.** The explanation layer is
+  local Ollama only; cloud providers (OpenAI, Anthropic, etc.) are deliberately
+  not built rather than built-and-unverified. `LLMProvider` is a small Protocol.
+- **No multi-hop failure chains yet.** A chain like
+  `stale_document → incorrect_context → incorrect_output` is not implemented.
+- **Not a live re-runner.** Replay clones a captured trace and overrides
+  attributes; it never re-invokes a real model or tool.
+- **Not published to PyPI.** Install from source for now.
+- **Not yet production-hardened.** Pre-Alpha: expect rough edges and evolving
+  interfaces.
 
-Only 2 of the 4 confidence components show up above because this particular trace
-had no prior execution to compare against. When one exists, `temporal_correlation`
-and `historical_frequency` are real too — see the baseline example below. What's
-**not** real yet, anywhere: a multi-hop "failure chain"
-(`stale_document → incorrect_context → incorrect_output`) — see `ROADMAP_HONEST.md`.
+## Project status
 
-### Historical baselines
+**Pre-Alpha (v0.1.0).** Phases 1–9 are implemented and tested end to end. What's
+still missing (cloud LLM providers for the explanation layer, multi-hop failure
+chains) is documented rather than stubbed. See
+[ROADMAP_HONEST.md](ROADMAP_HONEST.md) for the current built-vs-planned line and
+[docs/architecture.md](docs/architecture.md) for the full design.
 
-If a prior successful execution of the same named trace exists, PyAgentHound diffs
-model/prompt/retriever/tools/latency/tokens/execution-path against it — never
-claiming causality, only stating what changed:
+## Installation
 
-```
-$ pyagenthound analyze <trace_id>
-customer-support-request  (...)
-status: ERROR   findings: 1
-baseline: <baseline_trace_id> (most recent prior successful execution)
-
-Findings
-
-MEDIUM  Model changed since the last successful execution
-  model was 'gpt-4o' in the most recent successful execution (...) and is
-  'gpt-4-turbo' now. This is an observed change, not a claim that it caused
-  the current outcome.
-  confidence: 1.00
-  recommendation: Investigate whether the model change contributed to the current result.
-
-Root Cause Analysis (deterministic estimate, not verified truth)
-
-Likely cause: Model changed since the last successful execution
-  confidence: 0.87  (evidence_strength=1.00, causal_proximity=0.50, temporal_correlation=1.00)
-  recommendation: Investigate whether the model change contributed to the current result.
-```
-
-Also real, unedited. `temporal_correlation=1.00` here is genuine: baseline-comparison
-findings are, by construction, about a change between temporally adjacent
-executions. `causal_proximity=0.50` reflects that a baseline finding is anchored to
-the whole trace, one `PARENT`-edge hop from the single `llm` span in this minimal
-example — a busier trace with more structure between the trace root and the final
-span would score lower. `historical_frequency` only appears once there are multiple
-prior executions to check the pattern's recurrence against.
-
-### Replay
-
-PyAgentHound doesn't own your agent's code, so it can't literally "call the LLM
-again." What it can do: clone the trace, override a span's recorded attributes with
-what a fix *would* have produced, and check whether the finding clears. Fixing the
-stale-retrieval scenario above by overriding the retrieval span to return only the
-current policy:
-
-```
-$ pyagenthound replay <trace_id> --set 'retrieval.documents=[{"id": "policy-2026", "date": "2026-01-01"}]'
-Replayed <trace_id> -> <replayed_trace_id>
-original findings: 1   replayed findings: 0
-resolved: stale_retrieval_documents
-
-inspect the replayed trace with:
-  pyagenthound inspect <replayed_trace_id>
-```
-
-Real, unedited — the finding really does go to zero. Overriding a `TOOL`/`MCP` span
-(or any span not explicitly annotated `safety=READ_ONLY`) is refused unless you pass
-`--allow-unsafe`:
-
-```
-$ pyagenthound replay <trace_id> --set 'charge_card.amount=999'
-Error: Replay would override non-READ_ONLY span(s) ['charge_card'] — pass
-allow_unsafe=True to confirm. (pass --allow-unsafe to confirm)
-```
-
-### Evaluation / regression testing
-
-A test case is a small, hand-authored JSON file asserting properties that should
-hold for an already-captured trace — meant to be committed and run in CI:
-
-```json
-{
-  "name": "cancellation_policy_mentions_window",
-  "trace_id": "cf8f6b96514d4e1e89c946e7140b2d5b",
-  "assertions": [
-    {"type": "STATUS_OK", "target": null},
-    {"type": "OUTPUT_CONTAINS", "target": "cancel"},
-    {"type": "NO_FINDING", "target": "stale_retrieval_documents"},
-    {"type": "NO_TOOL_CALLED", "target": "charge_card"}
-  ]
-}
-```
-
-```
-$ pyagenthound test ./tests
-PASS  cancellation_policy_mentions_window
-
-all passed
-```
-
-Real output — and pointing that same test case at a genuinely regressed trace (the
-stale documents came back) correctly flips it, with the specific broken assertion
-named and a non-zero exit code for CI:
-
-```
-$ pyagenthound test ./tests
-FAIL  cancellation_policy_mentions_window
-  x NO_FINDING('stale_retrieval_documents'): 1 finding(s) matched
-  'stale_retrieval_documents'
-
-some failed
-```
-
-### Web UI
-
-`pyagenthound serve` then open `http://localhost:8787`: a requests list (filterable
-by name/status), and a request-detail page consolidating everything above — status,
-model/tokens, an interactive execution graph you can click through (each node,
-including a retrieved-document leaf, shows its real attributes), the timeline,
-findings, root-cause hypotheses, and a replay form. Verified in a real browser, not
-just via `TestClient`: submitting `retrieval.documents=[{"id": "policy-2026", ...}]`
-through the replay form redirects to a new page tagged "Replayed from `<original>`"
-whose findings count visibly drops (4 → 3) with `stale_retrieval_documents` gone —
-the same fix-and-verify loop as the CLI, just clickable. Server-rendered (FastAPI +
-Jinja2), no npm/build step — the graph is the only vanilla-JS piece, and it's a thin
-client of the same `GET /api/traces/{id}/graph` JSON the API already serves.
-
-### LLM-powered explanation (optional)
-
-Deterministic rules stay the default and the requirement — this layer only adds an
-optional plain-English narrative over findings that already exist, using a real
-local model (Ollama, no cloud API key, no network egress beyond localhost):
-
-```
-$ pyagenthound analyze <trace_id> --explain
-
-LLM Explanation (ollama, qwen2.5:7b-instruct)
-  The retrieval process is returning outdated document versions, as two out of
-  three retrieved documents predate the newest version.
-  cites: finding_427f29fad79b
-```
-
-Real, unedited output from a genuine `qwen2.5:7b-instruct` call on the
-stale-document scenario. The model is shown *only* the structured findings/
-hypotheses already computed — never the raw trace, never asked to invent a fact or
-its own confidence number — and its response is validated before being shown: if it
-cites a `finding_id` that doesn't actually exist in the evidence it was given, that's
-a hard rejection (`LLMOutputValidationError`), not something silently accepted. If
-no local Ollama is running, `--explain` fails soft — the deterministic output above
-it still prints normally, with a one-line "unavailable" note instead of a crash.
-
-## What works today (Phase 1-9)
-
-- A Python SDK (`pyagenthound`) with an OpenTelemetry-compatible tracing model:
-  traces, spans (with AI-specific `SpanType`s — `LLM`, `RETRIEVAL`, `TOOL`, `MCP`,
-  etc.), events, attributes, input/output, error capture.
-- Local-first capture: no server required — traces write straight to a local SQLite
-  database.
-- An optional local API server (`pyagenthound serve`) + REST ingestion, if you want
-  to centralize traces from multiple processes.
-- A queryable execution graph (`GET /api/traces/{id}/graph`) built from each trace —
-  spans linked by their parent/child structure, plus retrieved documents as their own
-  nodes for basic data lineage.
-- A deterministic rule engine (`POST /api/traces/{id}/analyze`, `pyagenthound
-  analyze`) — 5 built-in rules covering retrieval, tool, and configuration failures,
-  each returning evidence-backed findings, no LLM involved.
-- Root-cause ranking (`GET /api/traces/{id}/root-cause`, also folded into
-  `pyagenthound analyze`'s output) — turns findings into `likely_cause` /
-  `contributing_factor` hypotheses with a confidence built from real, exposed
-  components (see above).
-- Historical baseline comparison — diffs a trace against the most recent prior
-  successful execution of the same named workflow (model/prompt/retriever/tools/
-  latency/tokens/execution path), and computes how often a given anomaly recurs
-  across recent executions. Never claims causality, only states what changed.
-- Replay (`POST /api/traces/{id}/replay`, `pyagenthound replay`) — clone a trace,
-  override span attributes, and see whether a finding clears. Never re-invokes a
-  live model/tool; a `READ_ONLY`/`WRITE`/`DESTRUCTIVE`/`UNKNOWN` safety
-  classification refuses to override a non-`READ_ONLY` span without `--allow-unsafe`.
-- Evaluation / regression testing (`pyagenthound test <tests_dir>`) — file-based
-  JSON test cases asserting properties of a captured trace (status, output content,
-  absence of a finding, spans present, tools not called), CI-gateable via a
-  non-zero exit on failure.
-- A web UI (`pyagenthound serve`, then open `http://localhost:8787`) — requests
-  list, a request-detail page with an interactive execution graph (click any node
-  for its attributes), findings, root-cause hypotheses, and a replay form. Server-
-  rendered, no npm/build step.
-- An optional LLM-powered explanation layer (`pyagenthound analyze --explain`,
-  `POST /api/traces/{id}/explain`) — a local Ollama model narrates existing findings
-  in plain English; never invents evidence, and any unsupported citation is a hard
-  rejection, not a silent pass. Deterministic rules remain the default and
-  requirement; this is strictly additive.
-- A CLI to inspect, analyze, replay, and test what was captured.
-
-## Quickstart
+Not yet published to PyPI — install from source (Python 3.10+):
 
 ```bash
+git clone https://github.com/Mullassery/PyAgentHound.git
+cd PyAgentHound
 pip install -e ".[dev]"     # until published to PyPI
 pyagenthound init
 ```
+
+## Quick start
 
 ```python
 from pyagenthound import AgentHound, SpanType
@@ -285,93 +135,72 @@ pyagenthound analyze <trace_id> --explain   # optional: local-LLM narrative (nee
 pyagenthound serve   # then open http://localhost:8787 for the web UI
 ```
 
-Full walkthrough, including the API server, in [`docs/quickstart.md`](docs/quickstart.md).
+## Usage
 
-## vs Langfuse
+CLI commands:
 
-Langfuse is the leading OSS LLM/agent observability platform and the
-closest real comparison. **Methodology, stated plainly:** PyAgentHound was
-live-tested end to end against a real agent making real calls to a local
-Ollama model (`qwen2.5:7b-instruct`, zero cloud cost) with two real
-failure scenarios built deliberately, not synthetic placeholders. Standing
-up Langfuse's own multi-service stack (Postgres + ClickHouse + Redis +
-web/worker containers) was judged too heavyweight for this pass, so the
-Langfuse side of this comparison is feature-level, from its own public
-docs — clearly marked below, not blended with the live-tested numbers.
+| Command | Purpose |
+|---|---|
+| `pyagenthound init` | Initialize local storage/config. |
+| `pyagenthound inspect <trace_id>` | Inspect a captured trace. |
+| `pyagenthound analyze <trace_id>` | Run the rule engine; add `--explain` for the optional local-LLM narrative. |
+| `pyagenthound replay <trace_id> --set '<attr>=<value>'` | Clone and override a span; refuses non-`READ_ONLY` spans unless `--allow-unsafe`. |
+| `pyagenthound test <tests_dir>` | Run file-based JSON evaluation/regression cases (non-zero exit on failure). |
+| `pyagenthound serve` | Start the API server and web UI (`http://localhost:8787`). |
 
-**Scenario 1 (live-tested):** a tool returns technically-valid-but-incomplete
-data (a real order lookup missing its `status` field); the downstream LLM
-correctly says it doesn't have enough information rather than hallucinating.
-No exception anywhere — `pyagenthound analyze` correctly reports **0
-findings**, which is honest, not a miss: none of its rules claim to detect
-"technically valid but semantically incomplete" tool output, and it says so
-plainly rather than fabricating a finding.
+Evaluation test case example:
 
-**Scenario 2 (live-tested):** a tool genuinely crashes (a real
-`json.JSONDecodeError` from malformed upstream data). `pyagenthound analyze`
-correctly surfaced it:
-
-```
-HIGH  Tool call failed: tool.fetch_inventory
-  Expecting value: line 1 column 32 (char 31)
-  confidence: 1.00  (evidence_strength=1.00, causal_proximity=1.00, historical_frequency=1.00)
+```json
+{
+  "name": "cancellation_policy_mentions_window",
+  "trace_id": "cf8f6b96514d4e1e89c946e7140b2d5b",
+  "assertions": [
+    {"type": "STATUS_OK", "target": null},
+    {"type": "OUTPUT_CONTAINS", "target": "cancel"},
+    {"type": "NO_FINDING", "target": "stale_retrieval_documents"},
+    {"type": "NO_TOOL_CALLED", "target": "charge_card"}
+  ]
+}
 ```
 
-| | PyAgentHound (live-tested) | Langfuse (from public docs) |
-|---|---|---|
-| Deployment | Local-only, `pip install`, SQLite | Self-hosted (Postgres+ClickHouse+Redis+web/worker) or managed cloud |
-| Tracing | Real spans, real attributes, real errors — verified above | Real, mature, widely-adopted OTel-based tracing |
-| Root-cause ranking | Real deterministic rules + a decomposed confidence model (evidence/proximity/frequency) — verified finding a genuine crash | Not its focus — Langfuse surfaces traces/metrics/evals for a human (or your own downstream logic) to interpret; it doesn't ship an automated root-cause ranking engine |
-| Counterfactual replay (`replay --set ...`) | Real — override a captured attribute and re-run to test a fix | Not a Langfuse feature |
-| UI | A server-rendered web UI (requests list, request detail, interactive execution graph, replay form) — no npm/build step, verified in a real browser | Mature, full-featured web UI |
-| Scale/maturity | Early-stage, single-machine | Production-proven at real scale, large user base |
-
-**Bug found and fixed while running this benchmark:** a span's error status
-never propagated to its parent trace's status when the caller caught the
-exception itself (a normal pattern — retry/graceful-degradation code, not
-an edge case). `trace.status` stayed `OK` even when `analyze` correctly
-found a real `HIGH` tool failure inside it, which would silently break any
-status-based trace filtering ("show me failed traces"). Fixed in
-`pyagenthound/sdk/client.py`'s `SpanContext.record_error`; regression test
-added (`tests/unit/test_sdk_client.py`); 109/109 tests pass.
-
-**Bottom line:** Langfuse is the mature, production-proven choice for
-tracing infrastructure and scale. PyAgentHound's real differentiator,
-verified live here, is going a step further than tracing — a working,
-non-trivial root-cause ranking engine and counterfactual replay — but it's
-early-stage, CLI-only, and single-machine as of this pass.
-
-## Where this is going
-
-The core pipeline this project is building toward:
-
-```
-Trace → Graph → Evidence → Findings → Causal hypotheses → Replay → Evaluation
+```bash
+pyagenthound test ./tests
 ```
 
-Execution graph with typed relationships and data lineage (built), deterministic
-rule engine (built — 5 rules; LLM-powered analysis is optional and additive, never
-required), root-cause ranking with an explicit, fully-implemented confidence model
-(built), historical baseline comparison (built), safe replay with a
-read/write/destructive safety classification (built), a regression test suite you
-can run in CI (built), a server-rendered web UI (built), and an optional
-evidence-grounded LLM explanation layer (built — local Ollama only so far). See
-[`docs/architecture.md`](docs/architecture.md) for the full design and
-[`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) for what's actually shipped vs. planned at
-any point in time.
+## Documentation
 
-Still missing: cloud LLM providers (OpenAI, Anthropic, etc.) for the explanation
-layer — untestable without paid API keys in this environment, so not built rather
-than built-and-unverified. `LLMProvider` is a 3-line Protocol; adding one is
-straightforward whenever it can actually be tested.
+- [docs/quickstart.md](docs/quickstart.md) — full walkthrough, including the API
+  server.
+- [docs/architecture.md](docs/architecture.md) — execution graph, evidence
+  model, and the root-cause confidence design.
+- [ROADMAP_HONEST.md](ROADMAP_HONEST.md) — what's shipped vs. planned, with the
+  honest limitations spelled out.
+- [CHANGELOG.md](CHANGELOG.md) — release history.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution guidelines.
+- [SECURITY.md](SECURITY.md) — how to report a vulnerability.
 
-## Design principles
+## Contributing
 
-1. Evidence first — every finding references evidence, no opaque "AI says this is wrong."
-2. Deterministic analysis wherever possible; AI reasoning only where it adds value, and always optional.
-3. Provider-neutral, local-first, runs entirely on your machine with no cloud dependency.
-4. Python is the primary developer API. Rust is used only where profiling justifies it — not by default.
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Run the same
+checks CI runs:
+
+```bash
+pip install -e ".[dev]"
+ruff check pyagenthound tests examples
+mypy pyagenthound
+pytest -q
+```
+
+## Related projects
+
+- [PyAPICheck](https://github.com/Mullassery/PyAPICheck) — API security discovery with cited risk scores
+- [PyBeamGuard](https://github.com/Mullassery/PyBeamGuard) — Apache Beam and Dataflow pipeline analysis
+- [PyNetworkIntel](https://github.com/Mullassery/PyNetworkIntel) — network discovery and anomaly detection
+- [OpenAnchor](https://github.com/Mullassery/OpenAnchor) — LLM token-usage intelligence middleware
+- [PyAgentHound](https://github.com/Mullassery/PyAgentHound) — trace, detect, and explain AI agent failures
+- [PyVectorHound](https://github.com/Mullassery/PyVectorHound) — diagnose RAG retrieval failures
+- [Browse all projects](https://github.com/Mullassery?tab=repositories)
 
 ## License
 
-Apache-2.0 — see [`LICENSE`](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE).
