@@ -30,7 +30,7 @@ def find_baseline(store: TraceStore, trace: Trace, lookback: int = 20) -> Trace 
     """Most recent prior successful execution of the same named workflow, or None."""
     candidates = store.list_traces(limit=lookback, status=SpanStatus.OK, name=trace.name)
     for summary in candidates:
-        if summary.trace_id != trace.trace_id:
+        if summary.trace_id != trace.trace_id and summary.start_time < trace.start_time:
             return store.get_trace(summary.trace_id)
     return None
 

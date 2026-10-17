@@ -83,6 +83,16 @@ def test_find_baseline_returns_none_when_no_prior_success(tmp_path):
     assert find_baseline(store, current) is None
 
 
+def test_find_baseline_ignores_successful_traces_started_after_current(tmp_path):
+    store = SQLiteTraceStore(tmp_path / "t.db")
+    later = Trace(name="checkout", status=SpanStatus.OK, start_time=_at(10))
+    store.save_trace(later)
+    current = Trace(name="checkout", status=SpanStatus.ERROR, start_time=_at(0))
+    store.save_trace(current)
+
+    assert find_baseline(store, current) is None
+
+
 def test_compare_to_baseline_detects_model_change():
     baseline = Trace(name="t")
     baseline.spans = [
