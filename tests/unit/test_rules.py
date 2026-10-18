@@ -237,3 +237,33 @@ def test_finding_id_is_deterministic_across_repeated_runs():
     second = run_rules(trace, _graph_for(trace))
 
     assert [f.finding_id for f in first] == [f.finding_id for f in second]
+
+
+def test_findings_expose_structured_remediation():
+    """RECHECK-038: findings carry a machine-readable remediation object, and the
+    free-text recommendation is derived from it for back-compat consumers."""
+    from pyagenthound.rules.models import RemediationAction
+
+    trace = Trace(name="t")
+    span = Span(
+        trace_id=trace.trace_id,
+        name="retrieval",
+        span_type=SpanType.RETRIEVAL,
+        attributes={"query": "q", "documents": []},
+    )
+    trace.spans = [span]
+
+    findings = EmptyRetrievalRule().evaluate(trace, _graph_for(trace))
+    finding = findings[0]
+
+    assert finding.remediation is not None
+    assert finding.remediation.action == RemediationAction.UPDATE_CONFIGURATION
+    assert finding.remediation.target == "retrieval"
+    assert finding.remediation.steps
+    # Derived free-text field stays in sync with the structured summary.
+    assert finding.recommendation == finding.remediation.summary
+
+    # And it survives JSON serialization (what the API/UI emit).
+    dumped = finding.model_dump(mode="json")
+    assert dumped["remediation"]["action"] == "update_configuration"
+    assert isinstance(dumped["remediation"]["steps"], list)

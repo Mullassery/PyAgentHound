@@ -13,7 +13,14 @@ from datetime import date, datetime
 from typing import Any
 
 from pyagenthound.graph.models import ExecutionGraph
-from pyagenthound.rules.models import Evidence, FailureCategory, Finding, Severity
+from pyagenthound.rules.models import (
+    Evidence,
+    FailureCategory,
+    Finding,
+    Remediation,
+    RemediationAction,
+    Severity,
+)
 from pyagenthound.sdk.models import SpanStatus, SpanType, Trace
 
 
@@ -60,8 +67,23 @@ class EmptyRetrievalRule:
                         ],
                         affected_nodes=[span.span_id],
                         confidence=1.0,
-                        recommendation=(
-                            "Check retriever configuration, index freshness, and query relevance."
+                        remediation=Remediation(
+                            action=RemediationAction.UPDATE_CONFIGURATION,
+                            summary=(
+                                "Check retriever configuration, index freshness, and "
+                                "query relevance."
+                            ),
+                            target=span.name,
+                            parameters={
+                                "span_id": span.span_id,
+                                "query": span.attributes.get("query"),
+                            },
+                            steps=[
+                                "Inspect the retriever configuration for this span.",
+                                "Verify the index is fresh and populated.",
+                                "Re-run the query with a simplified term to isolate "
+                                "relevance issues.",
+                            ],
                         ),
                     )
                 )
@@ -128,9 +150,23 @@ class StaleRetrievalDocumentsRule:
                     affected_nodes=[span.span_id]
                     + [f"doc:{doc['id']}" for doc, _ in stale if "id" in doc],
                     confidence=round(min(0.5 + ratio, 0.95), 2),
-                    recommendation=(
-                        "Add a freshness filter or version-aware ranking boost so "
-                        "retrieval prefers the most recent document version."
+                    remediation=Remediation(
+                        action=RemediationAction.UPDATE_CONFIGURATION,
+                        summary=(
+                            "Add a freshness filter or version-aware ranking boost so "
+                            "retrieval prefers the most recent document version."
+                        ),
+                        target=span.name,
+                        parameters={
+                            "span_id": span.span_id,
+                            "stale_document_ids": [
+                                doc.get("id") for doc, _ in stale if "id" in doc
+                            ],
+                        },
+                        steps=[
+                            "Add a recency/freshness filter to the retrieval query.",
+                            "Boost the newest document version in the ranking stage.",
+                        ],
                     ),
                 )
             )
@@ -175,8 +211,19 @@ class DuplicateRetrievedDocumentsRule:
                     ],
                     affected_nodes=[span.span_id],
                     confidence=1.0,
-                    recommendation=(
-                        "Deduplicate retrieved documents before building the model context."
+                    remediation=Remediation(
+                        action=RemediationAction.DEDUPLICATE,
+                        summary=(
+                            "Deduplicate retrieved documents before building the model context."
+                        ),
+                        target=span.name,
+                        parameters={
+                            "span_id": span.span_id,
+                            "duplicate_document_ids": sorted(duplicates),
+                        },
+                        steps=[
+                            "Deduplicate retrieved documents by id before building context.",
+                        ],
                     ),
                 )
             )
@@ -216,9 +263,21 @@ class ToolFailureRule:
                     ],
                     affected_nodes=[span.span_id],
                     confidence=1.0,
-                    recommendation=(
-                        "Inspect the tool's arguments and downstream service for the "
-                        "root cause of the failure."
+                    remediation=Remediation(
+                        action=RemediationAction.INVESTIGATE,
+                        summary=(
+                            "Inspect the tool's arguments and downstream service for the "
+                            "root cause of the failure."
+                        ),
+                        target=span.name,
+                        parameters={
+                            "span_id": span.span_id,
+                            "error": span.error.message if span.error else None,
+                        },
+                        steps=[
+                            "Inspect the tool call arguments recorded on this span.",
+                            "Check the downstream service's health and logs.",
+                        ],
                     ),
                 )
             )
@@ -253,9 +312,21 @@ class DanglingParentSpanRule:
                     ],
                     affected_nodes=[span.span_id],
                     confidence=1.0,
-                    recommendation=(
-                        "Check for dropped spans (sampling, export failures) or an "
-                        "incorrect manually-assigned parent_span_id."
+                    remediation=Remediation(
+                        action=RemediationAction.INVESTIGATE,
+                        summary=(
+                            "Check for dropped spans (sampling, export failures) or an "
+                            "incorrect manually-assigned parent_span_id."
+                        ),
+                        target=span.name,
+                        parameters={
+                            "span_id": span.span_id,
+                            "parent_span_id": span.parent_span_id,
+                        },
+                        steps=[
+                            "Check whether spans were dropped by sampling or an export failure.",
+                            "Verify the parent_span_id was assigned correctly.",
+                        ],
                     ),
                 )
             )

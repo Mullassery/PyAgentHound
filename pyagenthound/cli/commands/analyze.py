@@ -82,6 +82,10 @@ def analyze_command(trace_id: str, db_path: str, explain_flag: bool, llm_model: 
         for evidence in finding.evidence:
             console.print(f"  evidence: {evidence.description}")
         console.print(f"  confidence: {finding.confidence:.2f}")
+        if finding.remediation:
+            r = finding.remediation
+            target = f" target={r.target}" if r.target else ""
+            console.print(f"  remediation: {r.action.value}{target}")
         if finding.recommendation:
             console.print(f"  recommendation: {finding.recommendation}")
 
@@ -100,6 +104,10 @@ def analyze_command(trace_id: str, db_path: str, explain_flag: bool, llm_model: 
             parts.append(f"historical_frequency={c.historical_frequency:.2f}")
         console.print(f"\n{label}: {hypothesis.statement}")
         console.print(f"  confidence: {hypothesis.confidence:.2f}  ({', '.join(parts)})")
+        if hypothesis.remediation:
+            r = hypothesis.remediation
+            target = f" target={r.target}" if r.target else ""
+            console.print(f"  remediation: {r.action.value}{target}")
         if hypothesis.recommendation:
             console.print(f"  recommendation: {hypothesis.recommendation}")
 

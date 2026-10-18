@@ -131,7 +131,11 @@ class Rule(Protocol):
 No `baseline` parameter yet — historical-baseline-aware rules are Phase 4 work (the
 signature will grow then, deliberately not accepting an always-`None` placeholder
 today). `Finding` fields (per product spec 6.5): `finding_id, rule_id, category,
-severity, title, description, evidence, affected_nodes, confidence, recommendation`.
+severity, title, description, evidence, affected_nodes, confidence, remediation,
+recommendation`. `remediation` is a structured `Remediation` object (`action`,
+`summary`, `target`, `parameters`, `steps`) so findings can be re-driven
+programmatically; `recommendation` remains the derived human-readable sentence for
+back-compat text consumers (RECHECK-038).
 `finding_id` is a **deterministic** hash of `rule_id` + `affected_nodes` (fixed in
 Phase 9 after it was found to be a random UUID — see section 16 — which broke
 `finding_id` as a stable reference across separate `run_rules()` calls over the same

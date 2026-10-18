@@ -19,7 +19,14 @@ from __future__ import annotations
 from pyagenthound.baseline.signature import extract_signature
 from pyagenthound.graph.builder import build_graph
 from pyagenthound.rules.engine import run_rules
-from pyagenthound.rules.models import Evidence, FailureCategory, Finding, Severity
+from pyagenthound.rules.models import (
+    Evidence,
+    FailureCategory,
+    Finding,
+    Remediation,
+    RemediationAction,
+    Severity,
+)
 from pyagenthound.sdk.models import SpanStatus, Trace
 from pyagenthound.storage.base import TraceStore
 
@@ -209,7 +216,21 @@ def _change_finding(
         ],
         affected_nodes=[trace_id],
         confidence=1.0,
-        recommendation=f"Investigate whether the {field} change contributed to the current result.",
+        remediation=Remediation(
+            action=RemediationAction.INVESTIGATE,
+            summary=f"Investigate whether the {field} change contributed to the current result.",
+            target=field,
+            parameters={
+                "field": field,
+                "previous": previous,
+                "current": current,
+                "baseline_trace_id": baseline_trace_id,
+            },
+            steps=[
+                f"Compare {field}={current!r} now against {previous!r} in the baseline.",
+                "Decide whether to revert the change or update the baseline.",
+            ],
+        ),
     )
 
 
@@ -249,7 +270,23 @@ def _regression_finding(
         ],
         affected_nodes=[trace_id],
         confidence=1.0,
-        recommendation=(
-            f"Investigate whether the {field} increase contributed to the current result."
+        remediation=Remediation(
+            action=RemediationAction.INVESTIGATE,
+            summary=(
+                f"Investigate whether the {field} increase contributed to the current result."
+            ),
+            target=field,
+            parameters={
+                "field": field,
+                "previous": previous,
+                "current": current,
+                "unit": unit,
+                "baseline_trace_id": baseline_trace_id,
+            },
+            steps=[
+                f"Compare {field}={current:.0f}{unit} now against "
+                f"{previous:.0f}{unit} in the baseline.",
+                "Route the request to a cheaper model or cache if the increase is unintended.",
+            ],
         ),
     )

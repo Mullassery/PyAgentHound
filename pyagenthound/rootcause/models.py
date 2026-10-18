@@ -6,7 +6,7 @@ import uuid
 
 from pydantic import BaseModel, Field
 
-from pyagenthound.rules.models import Evidence, FailureCategory
+from pyagenthound.rules.models import Evidence, FailureCategory, Remediation
 
 
 def _new_hypothesis_id() -> str:
@@ -40,4 +40,5 @@ class RootCauseHypothesis(BaseModel):
     affected_nodes: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
     confidence_components: ConfidenceComponents
+    remediation: Remediation | None = None
     recommendation: str | None = None

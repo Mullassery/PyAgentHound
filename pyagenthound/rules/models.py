@@ -49,6 +49,36 @@ class Evidence(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
+class RemediationAction(str, Enum):
+    """The verb of a remediation — what kind of action is being suggested."""
+
+    INVESTIGATE = "investigate"
+    UPDATE_CONFIGURATION = "update_configuration"
+    RETRY = "retry"
+    DEDUPLICATE = "deduplicate"
+    REDUCE_LOAD = "reduce_load"
+    ESCALATE = "escalate"
+    OTHER = "other"
+
+
+class Remediation(BaseModel):
+    """A machine-readable remediation suggestion (RECHECK-038).
+
+    A free-text ``recommendation`` string is unparseable by an agent, a
+    runbook, or a downstream API. This object carries a stable ``action``
+    verb, an optional ``target`` (the span, config key, or resource the action
+    applies to), a free-form ``parameters`` map for tool-specific arguments,
+    and an ordered ``steps`` list — so the same finding can be re-driven
+    programmatically. ``summary`` preserves the human-readable sentence.
+    """
+
+    action: RemediationAction
+    summary: str
+    target: str | None = None
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    steps: list[str] = Field(default_factory=list)
+
+
 class Finding(BaseModel):
     """`finding_id` is deterministic — a hash of `rule_id` + `affected_nodes` — not
     random. Two separate `run_rules` calls over the identical trace must produce the
@@ -66,6 +96,7 @@ class Finding(BaseModel):
     evidence: list[Evidence] = Field(default_factory=list)
     affected_nodes: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
+    remediation: Remediation | None = None
     recommendation: str | None = None
 
     @model_validator(mode="after")
@@ -74,6 +105,15 @@ class Finding(BaseModel):
             basis = f"{self.rule_id}|{'|'.join(sorted(self.affected_nodes))}"
             digest = hashlib.sha256(basis.encode()).hexdigest()[:12]
             self.finding_id = f"finding_{digest}"
+        return self
+
+    @model_validator(mode="after")
+    def _derive_recommendation(self) -> Finding:
+        """Keep the free-text field populated from the structured remediation so
+        existing text consumers (CLI, UI) keep working without every producer
+        setting both."""
+        if self.recommendation is None and self.remediation is not None:
+            self.recommendation = self.remediation.summary
         return self
 
 

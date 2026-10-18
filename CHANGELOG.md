@@ -11,6 +11,13 @@ All notable changes to this project are documented in this file.
   explicitly in `SECURITY.md` (PYAGENTHOUND-002).
 
 ### Added
+- Structured, machine-readable remediation on every finding and hypothesis
+  (RECHECK-038). `Finding.remediation` / `RootCauseHypothesis.remediation` is a
+  `Remediation` object (`action`, `summary`, `target`, `parameters`, `steps`)
+  parsed from the same data the free-text `recommendation` conveyed, so agents,
+  runbooks, and the JSON API can act on findings instead of scraping prose. The
+  human-readable `recommendation` is now derived from `remediation.summary`, so
+  existing text consumers are unaffected.
 - Phase 9: optional LLM-powered explanation (`pyagenthound/llm/`) — `LLMProvider`
   Protocol, `OllamaProvider` (local, no API key). `explain_root_cause()` shows a
   model only the structured findings/hypotheses already computed and requires

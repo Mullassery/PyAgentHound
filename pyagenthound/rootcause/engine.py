@@ -79,6 +79,7 @@ def rank_root_causes(
                 affected_nodes=finding.affected_nodes,
                 confidence=_combine_confidence(components),
                 confidence_components=components,
+                remediation=finding.remediation,
                 recommendation=finding.recommendation,
             )
         )
