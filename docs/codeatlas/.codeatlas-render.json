@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "outputs": {
+    "md": [
+      "cli.3.3.md",
+      "overview.md",
+      "pyagenthound.3.md",
+      "tests.4.md",
+      "tools.5.md",
+      "ui.3.12.md"
+    ],
+    "html": [
+      "cli.3.3.html",
+      "overview.html",
+      "pyagenthound.3.html",
+      "tests.4.html",
+      "tools.5.html",
+      "ui.3.12.html"
+    ]
+  }
+}

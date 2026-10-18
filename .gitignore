@@ -16,4 +16,4 @@ htmlcov/
 .pyagenthound/
 .DS_Store
 
-graphify-out/
+codeatlas-out/
