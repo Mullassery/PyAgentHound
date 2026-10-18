@@ -5,6 +5,7 @@ Evidence-based debugging and root-cause analysis for AI agents and LLM applicati
 [![CI](https://github.com/Mullassery/PyAgentHound/actions/workflows/ci.yml/badge.svg)](https://github.com/Mullassery/PyAgentHound/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/pyagenthound.svg)](https://pypi.org/project/pyagenthound/)
 
 > **Status: Phase 1–9 MVP (Pre-Alpha).** Trace capture, storage, inspection, a
 > queryable execution graph, a deterministic rule engine (5 built-in rules),
