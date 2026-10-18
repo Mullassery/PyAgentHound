@@ -8,6 +8,7 @@ from pyagenthound.sdk.models import (
     Trace,
     TraceSummary,
 )
+from pyagenthound.sdk.semantic import span_semantic_attributes, span_to_otel
 
 __all__ = [
     "AgentHound",
@@ -20,4 +21,6 @@ __all__ = [
     "SpanType",
     "Trace",
     "TraceSummary",
+    "span_semantic_attributes",
+    "span_to_otel",
 ]

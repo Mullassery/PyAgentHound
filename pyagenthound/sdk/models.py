@@ -86,6 +86,16 @@ class Span(BaseModel):
             return None
         return (self.end_time - self.start_time).total_seconds() * 1000
 
+    def semantic_attributes(self) -> dict[str, Any]:
+        """This span's attributes plus derived OTel GenAI/OpenInference keys.
+
+        See :mod:`pyagenthound.sdk.semantic` (RECHECK-037). Imported lazily to
+        avoid a models<->semantic import cycle.
+        """
+        from pyagenthound.sdk.semantic import span_semantic_attributes
+
+        return span_semantic_attributes(self)
+
 
 class Trace(BaseModel):
     trace_id: str = Field(default_factory=_new_trace_id)

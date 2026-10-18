@@ -11,6 +11,14 @@ All notable changes to this project are documented in this file.
   explicitly in `SECURITY.md` (PYAGENTHOUND-002).
 
 ### Added
+- OTel GenAI / OpenInference semantic conventions for spans (RECHECK-037).
+  `pyagenthound/sdk/semantic.py` derives `gen_ai.*` (system, operation, request/
+  response model, input/output token usage) and OpenInference (`openinference.span.kind`,
+  `llm.*`, `input.value`/`output.value`) attributes from a span and the aliases
+  instrumentation commonly uses (`model`, `provider`, `input_tokens`, …), plus a
+  transport-neutral `span_to_otel()` view. Stored attributes are never mutated and an
+  explicitly-set canonical key always wins, so existing analyzers and callers are
+  unaffected.
 - Structured, machine-readable remediation on every finding and hypothesis
   (RECHECK-038). `Finding.remediation` / `RootCauseHypothesis.remediation` is a
   `Remediation` object (`action`, `summary`, `target`, `parameters`, `steps`)

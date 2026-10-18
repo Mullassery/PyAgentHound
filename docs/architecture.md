@@ -79,6 +79,14 @@ These map 1:1 onto OpenTelemetry's trace/span/event concepts (trace_id, span_id,
 parent_span_id, timestamps, attributes, events, status, exceptions) by design — see
 section 9 for why PyAgentHound doesn't just *use* the OTel SDK in Phase 1.
 
+**Semantic conventions.** The stored `attributes` stay free-form, but
+`pyagenthound/sdk/semantic.py` derives OTel GenAI (`gen_ai.*`) and OpenInference
+(`openinference.span.kind`, `llm.*`, `input.value`/`output.value`) attributes from a
+span and its common aliases (`model`, `provider`, `input_tokens`, …). Derived keys
+never overwrite an attribute the caller already set, so a trace can be sent to an
+OTel/OpenInference backend (e.g. Arize Phoenix) with standard meaning attached while
+existing analyzers keep reading the original attributes (RECHECK-037).
+
 ## 4. Execution graph model (Phase 2 — built)
 
 A trace's spans already form a tree via `parent_span_id`. The **execution graph**
