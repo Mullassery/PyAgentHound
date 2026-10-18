@@ -331,3 +331,18 @@ def test_analyze_explain_flag_shows_unavailable_message(tmp_path, monkeypatch):
 
     assert result.exit_code == 0
     assert "unavailable" in result.output
+
+
+def test_serve_refuses_non_loopback_without_allow_external(tmp_path):
+    """The unauthenticated API must not bind to a routable host by accident
+    (PYAGENTHOUND-002): without --allow-external the command fails fast."""
+    db_path = tmp_path / "traces.db"
+    SQLiteTraceStore(db_path)
+
+    result = CliRunner().invoke(
+        cli, ["serve", "--host", "0.0.0.0", "--db", str(db_path)]
+    )
+
+    assert result.exit_code != 0
+    assert "non-loopback" in result.output
+    assert "--allow-external" in result.output

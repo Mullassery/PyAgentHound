@@ -23,7 +23,14 @@ a SQLite file on disk, and the only network activity is an *optional* HTTP POST 
 the SDK to a `pyagenthound serve` instance the developer runs themselves — nothing is
 sent anywhere unless `endpoint=` is explicitly set. There is no authentication on the
 Phase-1 API server; it is meant to be run on `localhost` for local development, not
-exposed on a network. Do not run `pyagenthound serve` on an untrusted network without
+exposed on a network.
+
+**Threat model (stated explicitly).** `pyagenthound serve` binds to `127.0.0.1` by
+default and *refuses* to bind to any other host unless you pass `--allow-external`.
+That flag exists so the exposure is a deliberate act, not an accident: the API serves
+full read access to every stored trace (prompts, tool arguments, model outputs) with
+no authn/authz, so anyone who can reach the port owns your data. Do not run
+`pyagenthound serve --host <routable> --allow-external` on an untrusted network without
 putting it behind your own auth/reverse proxy first.
 
 There is no redaction/PII-scrubbing engine yet (see `ROADMAP_HONEST.md`). AI execution

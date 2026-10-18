@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Security
+- `pyagenthound serve` now refuses to bind to a non-loopback host unless
+  `--allow-external` is passed, making the unauthenticated API's exposure a
+  deliberate opt-in rather than an accident; the threat model is stated
+  explicitly in `SECURITY.md` (PYAGENTHOUND-002).
+
 ### Added
 - Phase 9: optional LLM-powered explanation (`pyagenthound/llm/`) — `LLMProvider`
   Protocol, `OllamaProvider` (local, no API key). `explain_root_cause()` shows a
