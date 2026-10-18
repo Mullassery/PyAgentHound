@@ -69,6 +69,7 @@ pyagenthound = "pyagenthound.cli.main:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["pyagenthound"]
+exclude = ["**/.DS_Store"]
 
 [tool.ruff]
 line-length = 100

@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-19
+
+First public release.
+
 ### Security
 - `pyagenthound serve` now refuses to bind to a non-loopback host unless
   `--allow-external` is passed, making the unauthenticated API's exposure a

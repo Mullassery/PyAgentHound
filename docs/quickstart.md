@@ -1,7 +1,7 @@
 # Quickstart
 
 ```bash
-pip install -e ".[dev]"     # until published to PyPI
+pip install pyagenthound      # Python 3.10+
 pyagenthound init
 python examples/minimal_trace.py
 pyagenthound inspect <trace_id>   # trace_id is printed by the example

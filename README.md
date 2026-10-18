@@ -110,7 +110,6 @@ optional local Ollama model can narrate findings. No cloud dependency.
   `stale_document → incorrect_context → incorrect_output` is not implemented.
 - **Not a live re-runner.** Replay clones a captured trace and overrides
   attributes; it never re-invokes a real model or tool.
-- **Not published to PyPI.** Install from source for now.
 - **Not yet production-hardened.** Pre-Alpha: expect rough edges and evolving
   interfaces.
 
@@ -124,13 +123,19 @@ chains) is documented rather than stubbed. See
 
 ## Installation
 
-Not yet published to PyPI — install from source (Python 3.10+):
+Python 3.10+:
+
+```bash
+pip install pyagenthound
+pyagenthound init
+```
+
+For development, clone and install the editable development dependencies:
 
 ```bash
 git clone https://github.com/Mullassery/PyAgentHound.git
 cd PyAgentHound
-pip install -e ".[dev]"     # until published to PyPI
-pyagenthound init
+pip install -e ".[dev]"
 ```
 
 ## Quick start

@@ -172,7 +172,6 @@ a stable shape, but zero implementation exists:
 - Any Rust component. Phase 1 is pure Python — see `README.md` design principles.
   Rust is added later only where profiling identifies a real need (PyO3), not by
   default.
-- PyPI publication.
 - Authentication on the API server (`pyagenthound serve` is meant for localhost).
 
 ## Known limitations (not bugs, just not built)
