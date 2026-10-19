@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling<1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "pyagenthound"
-version = "0.1.0"
+version = "0.2.0"
 description = "Evidence-based debugging and root-cause analysis for AI agents and LLM applications"
 readme = "README.md"
 license = "Apache-2.0"
@@ -52,6 +52,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+inspect = ["inspect-ai>=0.3"]
+otlp = ["opentelemetry-proto>=1.20"]
 dev = [
     "pytest>=7.0",
     "httpx>=0.27",

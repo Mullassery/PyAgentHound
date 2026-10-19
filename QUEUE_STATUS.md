@@ -3,10 +3,10 @@
 This file records what was shipped, what is blocked/failed, and what is rejected for this repository. It complements `AUDIT_FINDINGS.md`.
 
 ## Shipped
-- No code changes; audit/bundle docs added.
+- OTLP/OpenInference trace ingestion (`POST /v1/traces`, JSON + optional protobuf) and Inspect AI interop (0.2.0).
 
 ## Blocked / failed
-- PyPI publication, OTel ingestion, cloud LLM explanations, multi-hop chains.
+- PyPI publication, cloud LLM explanations, multi-hop chains.
 
 ## Rejected / deferred
 - Hosted observability UI; integrate with OTel/Langfuse/Phoenix.

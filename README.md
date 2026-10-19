@@ -122,6 +122,45 @@ chains) is documented rather than stubbed. See
 [ROADMAP_HONEST.md](ROADMAP_HONEST.md) for the current built-vs-planned line and
 [docs/architecture.md](docs/architecture.md) for the full design.
 
+## Inspect AI evaluation interop
+
+Turn recorded traces into Inspect AI samples and run an Inspect task:
+
+```bash
+pip install "pyagenthound[inspect]"
+```
+
+```python
+from pyagenthound import traces_to_dataset
+
+samples = traces_to_dataset(store.list_traces())  # ids/input/target/metadata
+```
+
+`trace_to_sample()` uses span inputs and the last span output as the target,
+with trace id/status/tags as metadata. `evaluate_with_inspect(traces, task,
+model=...)` runs Inspect's `eval()` over the converted dataset. No target is
+fabricated: traces without outputs produce an empty target.
+
+## OpenTelemetry / OpenInference ingestion
+
+Point an existing OTLP exporter at PyAgentHound instead of rewriting your
+instrumentation:
+
+```bash
+# JSON (no extra dependency)
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:8787/v1/traces \
+OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/json your-agent
+
+# Protobuf (install the optional proto package)
+pip install "pyagenthound[otlp]"
+```
+
+`POST /v1/traces` accepts OTLP/HTTP JSON and protobuf, groups spans by
+`traceId`, and maps OpenInference/GenAI span kinds (`LLM`, `TOOL`,
+`RETRIEVER`, `EMBEDDING`, `RERANKER`, `AGENT`) plus attributes such as
+`gen_ai.request.model`, `input.value` and `output.value` into PyAgentHound's
+native model. Run `pyagenthound serve` and open the dashboard as usual.
+
 ## Installation
 
 Python 3.10+:
