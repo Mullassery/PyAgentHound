@@ -208,6 +208,11 @@ pyagenthound test ./tests
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution guidelines.
 - [SECURITY.md](SECURITY.md) — how to report a vulnerability.
 
+## Queue status
+
+Shipped, blocked/failed, and rejected work for this repository is documented in
+[`QUEUE_STATUS.md`](QUEUE_STATUS.md).
+
 ## Contributing
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Run the same
