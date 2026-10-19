@@ -208,6 +208,16 @@ pyagenthound test ./tests
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution guidelines.
 - [SECURITY.md](SECURITY.md) — how to report a vulnerability.
 
+## Known issues and deferred work
+
+**Blocked / failed:**
+- PyPI publication, OTel ingestion, cloud LLM explanations, multi-hop chains.
+
+**Rejected / deferred:**
+- Hosted observability UI; integrate with OTel/Langfuse/Phoenix.
+
+Full shipped/blocked/rejected detail: [`QUEUE_STATUS.md`](QUEUE_STATUS.md).
+
 ## Queue status
 
 Shipped, blocked/failed, and rejected work for this repository is documented in
