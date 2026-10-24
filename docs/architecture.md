@@ -6,7 +6,7 @@ engine, the root-cause engine, storage interfaces, the SDK API, security/privacy
 boundaries, and testing strategy. Sections marked **(built)** or with a specific
 Phase are implemented today. Sections marked **(future)** describe the intended
 contract so later phases build against a stable shape, not because the code exists
-yet — see `ROADMAP_HONEST.md` for exactly what's real right now.
+yet — see `internal/ROADMAP_HONEST.md` for exactly what's real right now.
 
 ## 1. Product framing
 
@@ -54,7 +54,7 @@ a real local Ollama model, not a mock. Concretely, Phase 1-9 = SDK + tracing mod
 SQLite storage + execution graph + rule engine (5 built-in rules) + root-cause
 ranking + historical baseline comparison + replay + file-based evaluation + a web UI
 + an optional LLM explanation layer + an 8-endpoint API + a 6-command CLI. See
-`ROADMAP_HONEST.md` for the authoritative built-vs-not list.
+`internal/ROADMAP_HONEST.md` for the authoritative built-vs-not list.
 
 ## 3. Domain models (Phase 1)
 
@@ -179,7 +179,7 @@ spec's full rule list (section 6.5):
 
 The remaining rules from product spec section 6.5 (empty/low-relevance retrieval
 nuances, prompt/model change detection, token explosion, tool/agent loops, schema
-violations, etc.) are documented future work in `ROADMAP_HONEST.md`, addable the same
+violations, etc.) are documented future work in `internal/ROADMAP_HONEST.md`, addable the same
 way: a class with `id`/`category`/`evaluate`, appended to `DEFAULT_RULES`.
 
 Exposed via `POST /api/traces/{id}/analyze` (section 10) and `pyagenthound analyze`.

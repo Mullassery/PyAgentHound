@@ -41,7 +41,7 @@ All three are enforced in CI (`.github/workflows/ci.yml`).
 
 See [`docs/architecture.md`](docs/architecture.md) for the domain model, storage/API
 contracts, and the design of components that don't exist yet. Please read
-[`ROADMAP_HONEST.md`](ROADMAP_HONEST.md) before proposing a feature from a later
+[`docs/internal/ROADMAP_HONEST.md`](docs/internal/ROADMAP_HONEST.md) before proposing a feature from a later
 phase — it explains what's intentionally not built yet and why, so PRs don't
 duplicate in-progress design work.
 
@@ -49,7 +49,7 @@ duplicate in-progress design work.
 
 1. Open an issue first for non-trivial changes, so design gets discussed before code.
 2. Add tests for new behavior. No test should depend on a real external LLM API.
-3. Update `ROADMAP_HONEST.md` if your change moves something from "not built" to
+3. Update `docs/internal/ROADMAP_HONEST.md` if your change moves something from "not built" to
    "built" (or vice versa) — keeping that file accurate is a project norm, not
    optional cleanup.
 4. Keep PRs scoped to one phase/feature at a time.

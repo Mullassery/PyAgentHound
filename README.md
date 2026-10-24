@@ -12,7 +12,7 @@ Evidence-based debugging and root-cause analysis for AI agents and LLM applicati
 > root-cause ranking, historical baseline comparison, safe replay, file-based
 > evaluation/regression testing, a server-rendered web UI, and an optional
 > LLM-powered explanation layer (local Ollama, evidence-grounded) work end to end
-> and are tested — see [ROADMAP_HONEST.md](ROADMAP_HONEST.md) for the exact
+> and are tested — see [docs/internal/ROADMAP_HONEST.md](docs/internal/ROADMAP_HONEST.md) for the exact
 > built-vs-not line.
 
 > **Not to be confused with [PyVectorHound](https://github.com/Mullassery/PyVectorHound):** PyAgentHound traces and root-causes AI *agent* failures; PyVectorHound diagnoses *RAG retrieval* failures.
@@ -119,7 +119,7 @@ optional local Ollama model can narrate findings. No cloud dependency.
 **Pre-Alpha (v0.1.0).** Phases 1–9 are implemented and tested end to end. What's
 still missing (cloud LLM providers for the explanation layer, multi-hop failure
 chains) is documented rather than stubbed. See
-[ROADMAP_HONEST.md](ROADMAP_HONEST.md) for the current built-vs-planned line and
+[docs/internal/ROADMAP_HONEST.md](docs/internal/ROADMAP_HONEST.md) for the current built-vs-planned line and
 [docs/architecture.md](docs/architecture.md) for the full design.
 
 ## Inspect AI evaluation interop
@@ -241,7 +241,7 @@ pyagenthound test ./tests
   server.
 - [docs/architecture.md](docs/architecture.md) — execution graph, evidence
   model, and the root-cause confidence design.
-- [ROADMAP_HONEST.md](ROADMAP_HONEST.md) — what's shipped vs. planned, with the
+- [docs/internal/ROADMAP_HONEST.md](docs/internal/ROADMAP_HONEST.md) — what's shipped vs. planned, with the
   honest limitations spelled out.
 - [CHANGELOG.md](CHANGELOG.md) — release history.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution guidelines.
@@ -255,7 +255,7 @@ pyagenthound test ./tests
 **Rejected / deferred:**
 - Hosted observability UI; integrate with OTel/Langfuse/Phoenix.
 
-Full shipped/blocked/rejected detail: [`QUEUE_STATUS.md`](QUEUE_STATUS.md).
+Full shipped/blocked/rejected detail: [`docs/internal/QUEUE_STATUS.md`](docs/internal/QUEUE_STATUS.md).
 
 ## Contributing
 

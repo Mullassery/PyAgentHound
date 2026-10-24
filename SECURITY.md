@@ -33,7 +33,7 @@ no authn/authz, so anyone who can reach the port owns your data. Do not run
 `pyagenthound serve --host <routable> --allow-external` on an untrusted network without
 putting it behind your own auth/reverse proxy first.
 
-There is no redaction/PII-scrubbing engine yet (see `ROADMAP_HONEST.md`). AI execution
+There is no redaction/PII-scrubbing engine yet (see `docs/internal/ROADMAP_HONEST.md`). AI execution
 traces can contain sensitive prompts, tool arguments, and model outputs — treat the
 local SQLite database and anything passed to `set_attribute`/`set_input`/`set_output`
 as sensitive, and do not point the SDK at an `endpoint` you don't control.
