@@ -56,7 +56,9 @@ starts, and record the decision in the PR or changelog.
 
 ## OSS gap analysis — 2026-10-24
 
-**Scope.** Covers PyAgentHound v0.2.0 as implemented here: trace storage,
+**What matters most here:** rule coverage and native instrumentation. Five rules and manual trace attachment make root-cause analysis a demo; expand the rule library and instrument frameworks/providers directly so debugging starts automatically.
+
+Scope: Covers PyAgentHound v0.2.0 as implemented here: trace storage,
 execution-graph queries, five deterministic rules, root-cause ranking, baseline
 comparison, attribute-override replay, file-based evaluation, the UI, and local
 Ollama explanations. Hosted SaaS is excluded unless its core is OSS.
