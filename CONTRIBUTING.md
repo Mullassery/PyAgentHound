@@ -11,7 +11,7 @@ Thank you for considering contributing! We welcome contributions of all kinds.
 ### Development Setup
 
 ```bash
-git clone https://github.com/Mullassery/PyAgentHound.git
+git clone ../PyAgentHound
 cd PyAgentHound
 
 python -m venv venv
